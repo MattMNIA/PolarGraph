@@ -1,0 +1,114 @@
+# Whiteboard Drawing Project - Root .gitignore
+# This project contains both React frontend (client/) and Python/Flask backend (visualization/)
+
+# Dependencies
+node_modules/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Build outputs
+build/
+dist/
+*.egg-info/
+
+# Environment and configuration
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Testing and coverage
+coverage/
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Temporary and generated files
+*.tmp
+*.temp
+polargraph_ready.png
+drawing_animation.gif
+path_visualization.png
+combined_whiteboard.png
+
+# Package management
+.pnp
+.pnp.js
+.yarn/install-state.gz
+
+# Python specific
+.Python
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg
+MANIFEST
+*.manifest
+*.spec
+.installed.cfg
+
+# Flask specific
+instance/
+.webassets-cache
+
+# Jupyter
+.ipynb_checkpoints
+
+# Documentation
+docs/_build/
+site/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Local development
+local_settings.py
+db.sqlite3

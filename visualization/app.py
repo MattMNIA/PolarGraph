@@ -1,0 +1,530 @@
+#!/usr/bin/env python3
+"""
+Flask API server for Whiteboard Designer visualization
+"""
+
+import os
+import sys
+import base64
+import tempfile
+import subprocess
+from pathlib import Path
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+import traceback
+import cv2
+import numpy as np
+from PIL import Image, ImageDraw
+
+# Set matplotlib backend to non-interactive to prevent threading issues (if matplotlib is available)
+try:
+    import matplotlib
+    matplotlib.use('Agg')
+except ImportError:
+    pass
+
+# Add the current directory to Python path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+
+app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
+
+@app.route('/api/visualize', methods=['POST'])
+def visualize():
+    """API endpoint for running polargraph visualization"""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        images = data.get('images', [])
+        positions = data.get('positions', [])
+        text_elements = data.get('textElements', [])
+        board_width = data.get('boardWidth', 1150)
+        board_height = data.get('boardHeight', 730)
+        method = data.get('method', 'contour')
+        spacing = data.get('spacing', 4)
+
+        if not images and not text_elements:
+            return jsonify({'error': 'No images or text elements provided'}), 400
+
+        if images and len(positions) != len(images) * 4:
+            return jsonify({
+                'error': f'Expected {len(images) * 4} position values, got {len(positions)}'
+            }), 400
+
+        # Create temporary directory for images
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Save base64 images to temporary files
+            image_paths = []
+            for i, image_data in enumerate(images):
+                # Remove data URL prefix if present
+                if image_data.startswith('data:image/'):
+                    image_data = image_data.split(',')[1]
+
+                # Decode base64
+                image_bytes = base64.b64decode(image_data)
+                image_path = os.path.join(temp_dir, f'image_{i}.png')
+
+                with open(image_path, 'wb') as f:
+                    f.write(image_bytes)
+
+                image_paths.append(image_path)
+
+            # Prepare command line arguments for the Python script
+            script_path = os.path.join(os.path.dirname(__file__), 'examples', 'run_simulation.py')
+            cmd = [
+                sys.executable, script_path,
+                '--board-width', str(board_width),
+                '--board-height', str(board_height),
+                '--method', method,
+                '--spacing', str(spacing),
+                '--images'
+            ] + image_paths + [
+                '--positions'
+            ] + [str(p) for p in positions]
+
+            # Process images and create path visualization directly
+            try:
+                import cv2
+                import numpy as np
+                from polargraph.image_processing import image_to_contour_paths, image_to_hatch_paths
+                from polargraph.path_planner import combine_image_paths
+                from PIL import Image, ImageDraw, ImageFont
+
+                # Create a white background image for path visualization
+                board_img = np.ones((board_height, board_width, 3), dtype=np.uint8) * 255
+
+                # Process each image and text element using the selected method and collect all paths
+                all_image_paths = []
+                total_path_length = 0
+
+                # Process image elements
+                for i, image_path in enumerate(image_paths):
+                    pos_idx = i * 4
+                    x, y, width, height = positions[pos_idx:pos_idx+4]
+
+                    # Use the selected method
+                    if method == 'contour':
+                        pixel_paths, paths, intermediates = image_to_contour_paths(
+                            image_path, board_width, board_height, x, y, width, height
+                        )
+                    elif method == 'hatch':
+                        # For hatch mode, get both contour and hatch paths
+                        pixel_paths_contour, paths_contour, intermediates_contour = image_to_contour_paths(
+                            image_path, board_width, board_height, x, y, width, height
+                        )
+                        pixel_paths_hatch, paths_hatch, intermediates_hatch = image_to_hatch_paths(
+                            image_path, board_width, board_height, x, y, width, height, spacing=spacing
+                        )
+                        # Combine contour and hatch paths
+                        paths = paths_contour + paths_hatch if paths_contour and paths_hatch else (paths_contour or paths_hatch or [])
+                        pixel_paths = pixel_paths_contour  # Use contour pixel paths for consistency
+                        intermediates = intermediates_contour  # Use contour intermediates for consistency
+                    else:
+                        # Default to contour
+                        pixel_paths, paths, intermediates = image_to_contour_paths(
+                            image_path, board_width, board_height, x, y, width, height
+                        )
+
+                    if paths:
+                        all_image_paths.append(paths)
+                        total_path_length += sum(len(path) for path in paths)
+
+                # Process text elements - convert each text to paths
+                for text_element in text_elements:
+                    text = text_element.get('text', '')
+                    if not text.strip():
+                        continue
+
+                    x = text_element.get('x', 0)
+                    y = text_element.get('y', 0)
+                    font_size = max(text_element.get('fontSize', 36), 36)
+                    font_family = text_element.get('fontFamily', 'arial')
+                    is_bold = text_element.get('isBold', False)
+                    is_italic = text_element.get('isItalic', False)
+                    color = text_element.get('color', '#000000')
+                    text_rendering_style = text_element.get('textRenderingStyle', 'filled')
+
+                    # Create a temporary image for this text element
+                    text_img = np.ones((board_height, board_width, 3), dtype=np.uint8) * 255
+                    pil_text_img = Image.fromarray(text_img)
+                    draw = ImageDraw.Draw(pil_text_img)
+
+                    # Convert hex color to RGB (use black for path generation)
+                    rgb_color = (0, 0, 0)  # Black for path detection
+
+                    # Create font
+                    font_weight = 'bold' if is_bold else 'normal'
+                    font_style = 'italic' if is_italic else 'normal'
+
+                    try:
+                        # Try to load the specified font, fallback to default if not available
+                        font = ImageFont.truetype(f"{font_family.lower()}.ttf", font_size)
+                    except:
+                        try:
+                            # Try system fonts
+                            if font_weight == 'bold' and font_style == 'italic':
+                                font = ImageFont.truetype("arialbi.ttf", font_size)
+                            elif font_weight == 'bold':
+                                font = ImageFont.truetype("arialbd.ttf", font_size)
+                            elif font_style == 'italic':
+                                font = ImageFont.truetype("ariali.ttf", font_size)
+                            else:
+                                font = ImageFont.truetype("arial.ttf", font_size)
+                        except:
+                            # Fallback to default font
+                            font = ImageFont.load_default()
+
+                    # Render text based on style
+                    if text_rendering_style == 'outline':
+                        # Draw outline (stroke) - use white background, black outline
+                        draw.text((x, y), text, fill=(255, 255, 255), font=font, stroke_width=2, stroke_fill=(0, 0, 0))
+                    else:
+                        # Draw filled text - white background, black text
+                        draw.text((x, y), text, fill=(0, 0, 0), font=font)
+
+                    # Convert back to numpy array
+                    text_img = np.array(pil_text_img)
+
+                    # Save temporary text image
+                    text_temp_path = os.path.join(temp_dir, f'text_{len(all_image_paths)}.png')
+                    cv2.imwrite(text_temp_path, text_img)
+
+                    # Process text image to paths (always use contour for text, regardless of method)
+                    pixel_paths, paths, intermediates = image_to_contour_paths(
+                        text_temp_path, board_width, board_height, 0, 0, board_width, board_height
+                    )
+
+                    if paths:
+                        all_image_paths.append(paths)
+                        total_path_length += sum(len(path) for path in paths)
+
+                # Initialize preview variables
+                path_preview = None
+                preview_image = None
+
+                # Combine all paths from all images
+                if all_image_paths:
+                    combined_path = combine_image_paths(all_image_paths)
+
+                    # Draw only the pen-down paths (exclude travel paths)
+                    for point in combined_path:
+                        if len(point) >= 3 and point[2]:  # point[2] is pen_down boolean
+                            x, y = point[0], point[1]
+                            # Convert to image coordinates (Y increases downward in images, but we want Y=0 at top)
+                            # The combined_path uses whiteboard coordinates where Y=0 is at the top
+                            img_x, img_y = int(x), int(y)
+
+                            # Draw a small dot for each point in the drawing path
+                            cv2.circle(board_img, (img_x, img_y), 1, (0, 0, 0), -1)
+
+                    # Create a combined whiteboard preview with drawing path overlaid
+                    try:
+                        from polargraph.whiteboard_manager import WhiteboardManager
+                        wb_manager = WhiteboardManager(board_width, board_height)
+
+                        for i, image_path in enumerate(image_paths):
+                            pos_idx = i * 4
+                            x, y, width, height = positions[pos_idx:pos_idx+4]
+                            wb_manager.add_image(image_path, x, y, width, height)
+
+                        combined_bg = wb_manager.get_combined_image()
+                        preview_image = None
+                        if combined_bg is not None:
+                            # Start with the combined images
+                            combined_img = Image.fromarray(combined_bg)
+
+                            # Overlay the drawing path on top
+                            draw = ImageDraw.Draw(combined_img)
+
+                            # Draw the pen-down paths as dots on the combined image
+                            for point in combined_path:
+                                if len(point) >= 3 and point[2]:  # point[2] is pen_down boolean
+                                    x, y = point[0], point[1]
+                                    # Draw small dots for the path
+                                    draw.ellipse([x-1, y-1, x+1, y+1], fill='black')
+
+                            combined_path_file = os.path.join(os.path.dirname(__file__), 'combined_whiteboard.png')
+                            combined_img.save(combined_path_file)
+
+                            with open(combined_path_file, 'rb') as f:
+                                image_data = f.read()
+                                preview_image = f"data:image/png;base64,{base64.b64encode(image_data).decode()}"
+                    except Exception as preview_error:
+                        print(f"Combined preview creation failed: {preview_error}")
+                        preview_image = None
+
+                # Save the path visualization (separate from combined preview)
+                if all_image_paths:
+                    path_viz_path = os.path.join(os.path.dirname(__file__), 'path_visualization.png')
+                    cv2.imwrite(path_viz_path, board_img)
+
+                    # Convert to base64
+                    with open(path_viz_path, 'rb') as f:
+                        path_image_data = f.read()
+                        path_preview = f"data:image/png;base64,{base64.b64encode(path_image_data).decode()}"
+
+                return jsonify({
+                    'success': True,
+                    'boardWidth': board_width,
+                    'boardHeight': board_height,
+                    'imageCount': len(images),
+                    'pathLength': total_path_length,
+                    'previewImage': preview_image,
+                    'pathImage': path_preview,
+                    'animationUrl': '/api/animation',  # Placeholder
+                    'downloadUrl': '/api/download',  # Placeholder
+                    'output': f"Processed {len(images)} images using {method} method with spacing {spacing}"
+                })
+
+            except Exception as e:
+                print(f"Processing failed: {e}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({
+                    'error': 'Path processing failed',
+                    'details': str(e)
+                }), 500
+
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'Visualization timed out'}), 500
+    except Exception as e:
+        print(f"Error in visualize endpoint: {e}")
+        traceback.print_exc()
+        return jsonify({
+            'error': 'Internal server error',
+            'details': str(e)
+        }), 500
+
+@app.route('/api/animation', methods=['POST'])
+def create_animation():
+    """Create a drawing animation from the path data"""
+    try:
+        data = request.get_json()
+
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        images = data.get('images', [])
+        positions = data.get('positions', [])
+        text_elements = data.get('textElements', [])
+        board_width = data.get('boardWidth', 1150)
+        board_height = data.get('boardHeight', 730)
+        method = data.get('method', 'contour')
+        spacing = data.get('spacing', 4)
+
+        if not images and not text_elements:
+            return jsonify({'error': 'No images or text elements provided'}), 400
+
+        if images and len(positions) != len(images) * 4:
+            return jsonify({
+                'error': f'Expected {len(images) * 4} position values, got {len(positions)}'
+            }), 400
+
+        # Create temporary directory for images
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Save base64 images to temporary files
+            image_paths = []
+            for i, image_data in enumerate(images):
+                if image_data.startswith('data:image/'):
+                    image_data = image_data.split(',')[1]
+                image_bytes = base64.b64decode(image_data)
+                image_path = os.path.join(temp_dir, f'image_{i}.png')
+                with open(image_path, 'wb') as f:
+                    f.write(image_bytes)
+                image_paths.append(image_path)
+
+            # Process images and get drawing paths
+            try:
+                from polargraph.image_processing import image_to_contour_paths, image_to_hatch_paths
+                from polargraph.path_planner import combine_image_paths
+                from PIL import Image, ImageDraw, ImageFont
+
+                # Process each image using the selected method
+                all_image_paths = []
+                for i, image_path in enumerate(image_paths):
+                    pos_idx = i * 4
+                    x, y, width, height = positions[pos_idx:pos_idx+4]
+
+                    if method == 'contour':
+                        pixel_paths, paths, intermediates = image_to_contour_paths(
+                            image_path, board_width, board_height, x, y, width, height
+                        )
+                    elif method == 'hatch':
+                        pixel_paths_contour, paths_contour, intermediates_contour = image_to_contour_paths(
+                            image_path, board_width, board_height, x, y, width, height
+                        )
+                        pixel_paths_hatch, paths_hatch, intermediates_hatch = image_to_hatch_paths(
+                            image_path, board_width, board_height, x, y, width, height, spacing=spacing
+                        )
+                        paths = paths_contour + paths_hatch if paths_contour and paths_hatch else (paths_contour or paths_hatch or [])
+                    else:
+                        pixel_paths, paths, intermediates = image_to_contour_paths(
+                            image_path, board_width, board_height, x, y, width, height
+                        )
+
+                    if paths:
+                        all_image_paths.append(paths)
+
+                # Process text elements - convert each text to paths
+                for text_element in text_elements:
+                    text = text_element.get('text', '')
+                    if not text.strip():
+                        continue
+
+                    x = text_element.get('x', 0)
+                    y = text_element.get('y', 0)
+                    font_size = max(text_element.get('fontSize', 36), 36)
+                    font_family = text_element.get('fontFamily', 'arial')
+                    is_bold = text_element.get('isBold', False)
+                    is_italic = text_element.get('isItalic', False)
+                    color = text_element.get('color', '#000000')
+                    text_rendering_style = text_element.get('textRenderingStyle', 'filled')
+
+                    # Create a temporary image for this text element
+                    text_img = np.ones((board_height, board_width, 3), dtype=np.uint8) * 255
+                    pil_text_img = Image.fromarray(text_img)
+                    draw = ImageDraw.Draw(pil_text_img)
+
+                    # Convert hex color to RGB (use black for path generation)
+                    rgb_color = (0, 0, 0)  # Black for path detection
+
+                    # Create font
+                    font_weight = 'bold' if is_bold else 'normal'
+                    font_style = 'italic' if is_italic else 'normal'
+
+                    try:
+                        # Try to load the specified font, fallback to default if not available
+                        font = ImageFont.truetype(f"{font_family.lower()}.ttf", font_size)
+                    except:
+                        try:
+                            # Try system fonts
+                            if font_weight == 'bold' and font_style == 'italic':
+                                font = ImageFont.truetype("arialbi.ttf", font_size)
+                            elif font_weight == 'bold':
+                                font = ImageFont.truetype("arialbd.ttf", font_size)
+                            elif font_style == 'italic':
+                                font = ImageFont.truetype("ariali.ttf", font_size)
+                            else:
+                                font = ImageFont.truetype("arial.ttf", font_size)
+                        except:
+                            # Fallback to default font
+                            font = ImageFont.load_default()
+
+                    # Render text based on style
+                    if text_rendering_style == 'outline':
+                        # Draw outline (stroke) - use white background, black outline
+                        draw.text((x, y), text, fill=(255, 255, 255), font=font, stroke_width=2, stroke_fill=(0, 0, 0))
+                    else:
+                        # Draw filled text - white background, black text
+                        draw.text((x, y), text, fill=(0, 0, 0), font=font)
+
+                    # Convert back to numpy array
+                    text_img = np.array(pil_text_img)
+
+                    # Save temporary text image
+                    text_temp_path = os.path.join(temp_dir, f'text_{len(all_image_paths)}.png')
+                    cv2.imwrite(text_temp_path, text_img)
+
+                    # Process text image to paths (always use contour for text, regardless of method)
+                    pixel_paths, paths, intermediates = image_to_contour_paths(
+                        text_temp_path, board_width, board_height, 0, 0, board_width, board_height
+                    )
+
+                    if paths:
+                        all_image_paths.append(paths)
+
+                if not all_image_paths:
+                    return jsonify({'error': 'No paths found'}), 400
+
+                # Combine all paths
+                combined_path = combine_image_paths(all_image_paths)
+
+                # Filter to only pen-down points
+                drawing_points = [point for point in combined_path if len(point) >= 3 and point[2]]
+
+                if not drawing_points:
+                    return jsonify({'error': 'No drawing points found'}), 400
+
+                # Create animation frames using PIL (much more lightweight)
+                from PIL import Image, ImageDraw, ImageFont
+
+                # Create base white image
+                base_image = Image.new('RGB', (board_width, board_height), 'white')
+
+                frames = []
+
+                # Calculate frame step for performance
+                total_points = len(drawing_points)
+                max_frames = min(100, total_points)  # Limit frames for performance
+                step = max(1, total_points // max_frames)
+
+                # Create frames - draw dots exactly like the preview
+                for i in range(0, total_points, step):
+                    # Copy base image
+                    frame = base_image.copy()
+                    draw = ImageDraw.Draw(frame)
+
+                    # Draw dots for all points up to current frame (exactly like preview)
+                    points_to_draw = drawing_points[:i+1]
+                    for point in points_to_draw:
+                        x, y = point[0], point[1]
+                        # Draw small dots exactly like the preview (cv2.circle with radius 1)
+                        draw.ellipse([x-1, y-1, x+1, y+1], fill='black')
+
+                    frames.append(frame)
+
+                # Ensure we have at least one frame
+                if not frames:
+                    frames.append(base_image.copy())
+
+                # Save as GIF
+                animation_path = os.path.join(os.path.dirname(__file__), 'drawing_animation.gif')
+                frames[0].save(
+                    animation_path,
+                    save_all=True,
+                    append_images=frames[1:],
+                    duration=50,  # 50ms per frame = 20fps
+                    loop=0  # Infinite loop
+                )
+
+                # Convert to base64
+                with open(animation_path, 'rb') as f:
+                    animation_data = f.read()
+                    animation_b64 = f"data:image/gif;base64,{base64.b64encode(animation_data).decode()}"
+
+                return jsonify({
+                    'success': True,
+                    'animationGif': animation_b64,
+                    'frameCount': len(frames),
+                    'totalPoints': total_points,
+                    'duration': f"{len(frames) * 0.05:.1f}s"
+                })
+
+            except Exception as e:
+                print(f"Animation creation failed: {e}")
+                import traceback
+                traceback.print_exc()
+                return jsonify({'error': 'Animation creation failed', 'details': str(e)}), 500
+
+    except Exception as e:
+        print(f"Animation endpoint error: {e}")
+        traceback.print_exc()
+        return jsonify({'error': 'Internal server error', 'details': str(e)}), 500
+
+if __name__ == '__main__':
+    # Try to import required modules
+    try:
+        from polargraph.kinematics import Polargraph
+        print("✓ Polargraph module imported successfully")
+    except ImportError as e:
+        print(f"✗ Failed to import polargraph: {e}")
+        print("Make sure you're running from the visualization directory")
+        sys.exit(1)
+
+    port = int(os.environ.get('PORT', 3001))
+    print(f"Starting Flask server on port {port}")
+    print(f"Visualization endpoint: http://localhost:{port}/api/visualize")
+    app.run(host='0.0.0.0', port=port, debug=True)

@@ -1,5 +1,5 @@
 // src/components/Whiteboard.js
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from './ThemeProvider';
 import { theme, getThemeClasses } from '../theme';
@@ -114,10 +114,15 @@ const Whiteboard = () => {
   const [fontFamily, setFontFamily] = useState('Inter');
   const [isBold, setIsBold] = useState(false);
   const [isItalic, setIsItalic] = useState(false);
-  const [selectedColor, setSelectedColor] = useState('#1f2937');
+  const [selectedColor, setSelectedColor] = useState(darkMode ? '#ffffff' : '#000000');
   const [textRenderingStyle, setTextRenderingStyle] = useState('filled'); // 'filled' or 'outline'
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
+
+  // Update selected color when theme changes
+  useEffect(() => {
+    setSelectedColor(darkMode ? '#ffffff' : '#000000');
+  }, [darkMode]);
 
   const handleImageUpload = (event) => {
     const file = event.target.files[0];
@@ -321,6 +326,8 @@ const Whiteboard = () => {
           text: element.text,
           x: Math.round(element.x),
           y: Math.round(element.y),
+          width: Math.round(element.width),
+          height: Math.round(element.height),
           fontSize: element.fontSize,
           fontFamily: element.fontFamily,
           isBold: element.isBold,
@@ -397,6 +404,8 @@ const Whiteboard = () => {
         text: element.text,
         x: Math.round(element.x),
         y: Math.round(element.y),
+        width: Math.round(element.width),
+        height: Math.round(element.height),
         fontSize: element.fontSize,
         fontFamily: element.fontFamily,
         isBold: element.isBold,
@@ -432,12 +441,6 @@ const Whiteboard = () => {
 
     return result;
   };
-
-  const colors = [
-    '#1f2937', '#dc2626', '#ea580c', '#ca8a04',
-    '#16a34a', '#0891b2', '#2563eb', '#7c3aed',
-    '#be185d', '#000000', '#6b7280'
-  ];
 
   return (
     <div className={getThemeClasses('min-h-screen transition-colors duration-300',
@@ -607,26 +610,6 @@ const Whiteboard = () => {
                       </label>
                     </div>
 
-                    {/* Color Picker */}
-                    <div className="space-y-2">
-                      <span className="text-sm font-medium">Text Color</span>
-                      <div className="flex gap-2 flex-wrap">
-                        {colors.map((color) => (
-                          <motion.button
-                            key={color}
-                            onClick={() => setSelectedColor(color)}
-                            className={`w-8 h-8 rounded-full border-2 transition-all duration-200 ${
-                              selectedColor === color
-                                ? 'border-blue-500 shadow-lg'
-                                : 'border-gray-300 dark:border-gray-600'
-                            }`}
-                            style={{ backgroundColor: color }}
-                            {...theme.animations.hover}
-                          />
-                        ))}
-                      </div>
-                    </div>
-
                     {/* Text Rendering Style */}
                     <div className="space-y-2">
                       <span className="text-sm font-medium">Text Rendering</span>
@@ -776,7 +759,14 @@ const Whiteboard = () => {
                 onMouseUp={handleMouseUp}
               >
                 <AnimatePresence>
-                  {elements.map((element) => (
+                  {elements
+                    .sort((a, b) => {
+                      // Sort so text elements appear above image elements
+                      if (a.type === 'text' && b.type === 'image') return 1;
+                      if (a.type === 'image' && b.type === 'text') return -1;
+                      return 0;
+                    })
+                    .map((element) => (
                     <motion.div
                       key={element.id}
                       initial={{ scale: 0, opacity: 0 }}
@@ -794,7 +784,7 @@ const Whiteboard = () => {
                     >
                       <div className={getThemeClasses(
                         'relative w-full h-full border rounded-lg overflow-hidden transition-all duration-200',
-                        { light: 'bg-white border-gray-200 shadow-lg group-hover:shadow-xl', dark: 'bg-gray-700 border-gray-600 shadow-lg group-hover:shadow-xl' }, darkMode
+                        { light: element.type === 'text' ? 'border-gray-300 shadow-lg group-hover:shadow-xl' : 'bg-white border-gray-200 shadow-lg group-hover:shadow-xl', dark: element.type === 'text' ? 'border-gray-600 shadow-lg group-hover:shadow-xl' : 'bg-gray-700 border-gray-600 shadow-lg group-hover:shadow-xl' }, darkMode
                       )}>
                         {element.type === 'image' ? (
                           <img
@@ -806,7 +796,7 @@ const Whiteboard = () => {
                           />
                         ) : (
                           <div
-                            className="w-full h-full flex items-center justify-center p-4 select-none"
+                            className="w-full h-full flex items-center justify-center p-4 select-none relative bg-black bg-opacity-10 dark:bg-white dark:bg-opacity-10 rounded-lg"
                             style={{
                               fontSize: element.fontSize,
                               fontFamily: element.fontFamily,
@@ -817,6 +807,8 @@ const Whiteboard = () => {
                             onDragStart={(e) => e.preventDefault()} // Prevent browser's default drag behavior
                             draggable={false} // Explicitly disable dragging
                           >
+                            {/* Centering indicator */}
+                            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-blue-500 rounded-full opacity-50 group-hover:opacity-100 transition-opacity duration-200"></div>
                             {element.text}
                           </div>
                         )}

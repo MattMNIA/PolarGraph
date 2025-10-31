@@ -140,6 +140,8 @@ def visualize():
 
                     x = text_element.get('x', 0)
                     y = text_element.get('y', 0)
+                    width = text_element.get('width', 150)
+                    height = text_element.get('height', 50)
                     font_size = max(text_element.get('fontSize', 36), 36)
                     font_family = text_element.get('fontFamily', 'arial')
                     is_bold = text_element.get('isBold', False)
@@ -147,13 +149,10 @@ def visualize():
                     color = text_element.get('color', '#000000')
                     text_rendering_style = text_element.get('textRenderingStyle', 'filled')
 
-                    # Create a temporary image for this text element
-                    text_img = np.ones((board_height, board_width, 3), dtype=np.uint8) * 255
+                    # Create a small image just for this text element's bounding box
+                    text_img = np.ones((height, width, 3), dtype=np.uint8) * 255
                     pil_text_img = Image.fromarray(text_img)
                     draw = ImageDraw.Draw(pil_text_img)
-
-                    # Convert hex color to RGB (use black for path generation)
-                    rgb_color = (0, 0, 0)  # Black for path detection
 
                     # Create font
                     font_weight = 'bold' if is_bold else 'normal'
@@ -177,13 +176,22 @@ def visualize():
                             # Fallback to default font
                             font = ImageFont.load_default()
 
+                    # Calculate text size
+                    bbox = draw.textbbox((0, 0), text, font=font)
+                    text_width = bbox[2] - bbox[0]
+                    text_height = bbox[3] - bbox[1]
+
+                    # Center the text in the bounding box
+                    text_x = (width - text_width) // 2
+                    text_y = (height - text_height) // 2
+
                     # Render text based on style
                     if text_rendering_style == 'outline':
                         # Draw outline (stroke) - use white background, black outline
-                        draw.text((x, y), text, fill=(255, 255, 255), font=font, stroke_width=2, stroke_fill=(0, 0, 0))
+                        draw.text((text_x, text_y), text, fill=(255, 255, 255), font=font, stroke_width=2, stroke_fill=(0, 0, 0))
                     else:
                         # Draw filled text - white background, black text
-                        draw.text((x, y), text, fill=(0, 0, 0), font=font)
+                        draw.text((text_x, text_y), text, fill=(0, 0, 0), font=font)
 
                     # Convert back to numpy array
                     text_img = np.array(pil_text_img)
@@ -192,9 +200,9 @@ def visualize():
                     text_temp_path = os.path.join(temp_dir, f'text_{len(all_image_paths)}.png')
                     cv2.imwrite(text_temp_path, text_img)
 
-                    # Process text image to paths (always use contour for text, regardless of method)
+                    # Process text image to paths using the element's position and size
                     pixel_paths, paths, intermediates = image_to_contour_paths(
-                        text_temp_path, board_width, board_height, 0, 0, board_width, board_height
+                        text_temp_path, board_width, board_height, x, y, width, height
                     )
 
                     if paths:
@@ -376,6 +384,8 @@ def create_animation():
 
                     x = text_element.get('x', 0)
                     y = text_element.get('y', 0)
+                    width = text_element.get('width', 150)
+                    height = text_element.get('height', 50)
                     font_size = max(text_element.get('fontSize', 36), 36)
                     font_family = text_element.get('fontFamily', 'arial')
                     is_bold = text_element.get('isBold', False)
@@ -383,13 +393,10 @@ def create_animation():
                     color = text_element.get('color', '#000000')
                     text_rendering_style = text_element.get('textRenderingStyle', 'filled')
 
-                    # Create a temporary image for this text element
-                    text_img = np.ones((board_height, board_width, 3), dtype=np.uint8) * 255
+                    # Create a small image just for this text element's bounding box
+                    text_img = np.ones((height, width, 3), dtype=np.uint8) * 255
                     pil_text_img = Image.fromarray(text_img)
                     draw = ImageDraw.Draw(pil_text_img)
-
-                    # Convert hex color to RGB (use black for path generation)
-                    rgb_color = (0, 0, 0)  # Black for path detection
 
                     # Create font
                     font_weight = 'bold' if is_bold else 'normal'
@@ -413,13 +420,22 @@ def create_animation():
                             # Fallback to default font
                             font = ImageFont.load_default()
 
+                    # Calculate text size
+                    bbox = draw.textbbox((0, 0), text, font=font)
+                    text_width = bbox[2] - bbox[0]
+                    text_height = bbox[3] - bbox[1]
+
+                    # Center the text in the bounding box
+                    text_x = (width - text_width) // 2
+                    text_y = (height - text_height) // 2
+
                     # Render text based on style
                     if text_rendering_style == 'outline':
                         # Draw outline (stroke) - use white background, black outline
-                        draw.text((x, y), text, fill=(255, 255, 255), font=font, stroke_width=2, stroke_fill=(0, 0, 0))
+                        draw.text((text_x, text_y), text, fill=(255, 255, 255), font=font, stroke_width=2, stroke_fill=(0, 0, 0))
                     else:
                         # Draw filled text - white background, black text
-                        draw.text((x, y), text, fill=(0, 0, 0), font=font)
+                        draw.text((text_x, text_y), text, fill=(0, 0, 0), font=font)
 
                     # Convert back to numpy array
                     text_img = np.array(pil_text_img)
@@ -428,9 +444,9 @@ def create_animation():
                     text_temp_path = os.path.join(temp_dir, f'text_{len(all_image_paths)}.png')
                     cv2.imwrite(text_temp_path, text_img)
 
-                    # Process text image to paths (always use contour for text, regardless of method)
+                    # Process text image to paths using the element's position and size
                     pixel_paths, paths, intermediates = image_to_contour_paths(
-                        text_temp_path, board_width, board_height, 0, 0, board_width, board_height
+                        text_temp_path, board_width, board_height, x, y, width, height
                     )
 
                     if paths:
@@ -480,13 +496,21 @@ def create_animation():
                 if not frames:
                     frames.append(base_image.copy())
 
+                # Add a final pause frame (3 seconds)
+                if frames:
+                    final_frame = frames[-1].copy()
+                    frames.append(final_frame)
+
+                # Create duration list: 50ms for all frames except the last one (3000ms)
+                durations = [50] * (len(frames) - 1) + [3000]
+
                 # Save as GIF
                 animation_path = os.path.join(os.path.dirname(__file__), 'drawing_animation.gif')
                 frames[0].save(
                     animation_path,
                     save_all=True,
                     append_images=frames[1:],
-                    duration=50,  # 50ms per frame = 20fps
+                    duration=durations,  # 50ms for drawing, 3000ms for final frame
                     loop=0  # Infinite loop
                 )
 

@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
+/* React Resizable Styles */
+.react-resizable {
+  position: relative;
+}
+
+.react-resizable-handle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  bottom: 0;
+  right: 0;
+  background: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNiIgaGVpZ2h0PSI2IiB2aWV3Qm94PSIwIDAgNiA2IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cGF0aCBkPSJNMy41IDMuNUwxLjUgNS41SDMuNVYzLjVaIiBmaWxsPSIjZmZmZmZmIi8+CjxwYXRoIGQ9Ik0zLjUgMy41TDEuNSA1LjVIMy41VjMuNVoiIGZpbGw9IiM5OTk5OTkiLz4KPHBhdGggZD0iTTMuNSAzLjVMMCA2SDMuNVYzLjVaIiBmaWxsPSIjZmZmZmZmIi8+CjxwYXRoIGQ9Ik0zLjUgMy41TDAgNkgzLjVWMi41WiIgZmlsbD0iIzk5OTk5OTkiLz4KPC9zdmc+Cg==') no-repeat center center;
+  padding: 0 3px 3px 0;
+  background-size: 12px;
+  background-position: bottom right;
+  cursor: nw-resize;
+}

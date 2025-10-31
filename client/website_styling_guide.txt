@@ -1,0 +1,332 @@
+# Website Styling Guide: Matthew Morgan's Portfolio
+
+## Overview
+This is a modern, minimalist portfolio website built with React, TailwindCSS, and Framer Motion. The design features a clean, professional aesthetic with a focus on readability, smooth animations, and a sophisticated dark/light mode toggle. The site uses a blue accent color scheme and maintains consistent spacing and typography throughout.
+
+## Core Technologies & Setup
+
+### Dependencies
+```json
+{
+  "react": "^19.1.0",
+  "react-dom": "^19.1.0",
+  "framer-motion": "^12.6.3",
+  "lucide-react": "^0.486.0",
+  "react-router-dom": "^6.x.x",
+  "tailwindcss": "^3.4.17"
+}
+```
+
+### Tailwind Configuration
+```javascript
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: ["./src/**/*.{js,jsx,ts,tsx}"],
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd',
+          400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8',
+          800: '#1e40af', 900: '#1e3a8a',
+        },
+        accent: {
+          50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd',
+          400: '#60a5fa', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8',
+          800: '#1e40af', 900: '#1e3a8a',
+        },
+      },
+      animation: {
+        'fade-in-up': 'fadeInUp 0.6s ease-out',
+        'stagger-1': 'stagger 0.6s ease-out 0.1s both',
+        'stagger-2': 'stagger 0.6s ease-out 0.2s both',
+        'stagger-3': 'stagger 0.6s ease-out 0.3s both',
+      },
+      keyframes: {
+        fadeInUp: {
+          '0%': { opacity: '0', transform: 'translateY(20px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        stagger: {
+          '0%': { opacity: '0', transform: 'translateY(20px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+      },
+    },
+  },
+  plugins: [],
+}
+```
+
+## Theme System
+
+### ThemeProvider Setup
+```javascript
+// ThemeProvider.js
+import React, { createContext, useContext, useState, useEffect } from 'react';
+
+const ThemeContext = createContext();
+
+export const ThemeProvider = ({ children }) => {
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('theme');
+    return saved ? JSON.parse(saved) : true; // Default to dark
+  });
+
+  useEffect(() => {
+    const root = document.documentElement;
+    if (darkMode) {
+      root.classList.add('dark');
+    } else {
+      root.classList.remove('dark');
+    }
+    localStorage.setItem('theme', JSON.stringify(darkMode));
+  }, [darkMode]);
+
+  const toggleTheme = () => setDarkMode(!darkMode);
+
+  return (
+    <ThemeContext.Provider value={{ darkMode, toggleTheme }}>
+      {children}
+    </ThemeContext.Provider>
+  );
+};
+
+export const useTheme = () => useContext(ThemeContext);
+```
+
+### Theme Configuration
+```javascript
+// theme.js
+export const theme = {
+  colors: {
+    primary: { /* blue palette */ },
+    gray: { /* gray palette */ },
+    blue: { /* accent blue */ },
+  },
+  styles: {
+    section: {
+      base: 'py-24',
+      light: 'bg-gray-100',
+      dark: 'bg-gray-800',
+    },
+    card: {
+      base: 'rounded-xl shadow-lg transition-all duration-300',
+      light: 'bg-white',
+      dark: 'bg-gray-900',
+    },
+    button: {
+      primary: {
+        base: 'px-6 py-3 rounded-lg font-semibold transition-colors',
+        light: 'bg-blue-600 hover:bg-blue-700 text-white',
+        dark: 'bg-blue-500 hover:bg-blue-600 text-white',
+      },
+    },
+    text: {
+      heading: {
+        primary: 'text-3xl md:text-4xl font-bold mb-4',
+        secondary: 'text-xl font-bold mb-2',
+      },
+      body: 'opacity-90',
+    },
+    container: 'max-w-6xl mx-auto px-6',
+    divider: {
+      base: 'h-1 w-20 mx-auto',
+      light: 'bg-blue-600',
+      dark: 'bg-blue-500',
+    },
+  },
+  animations: {
+    fadeInUp: {
+      initial: { opacity: 0, y: 20 },
+      whileInView: { opacity: 1, y: 0 },
+      viewport: { once: true },
+      transition: { duration: 0.6 },
+    },
+    staggerContainer: { /* stagger animations */ },
+    hover: { whileHover: { scale: 1.05 }, whileTap: { scale: 0.95 } },
+  },
+};
+
+export const getThemeClasses = (baseClasses, themeClasses, darkMode) => {
+  return `${baseClasses} ${darkMode ? themeClasses.dark : themeClasses.light}`;
+};
+```
+
+## Layout Structure
+
+### Main App Layout
+```javascript
+// App.js
+const App = () => (
+  <BrowserRouter>
+    <ThemeProvider>
+      <Routes>
+        <Route path="/" element={<Home />} />
+        <Route path="/projects/:slug" element={<ProjectPage />} />
+      </Routes>
+    </ThemeProvider>
+  </BrowserRouter>
+);
+
+const Home = () => (
+  <div className={getThemeClasses('min-h-screen transition-colors duration-300',
+    { light: 'bg-gray-50 text-gray-900', dark: 'bg-gray-900 text-white' }, darkMode)}>
+    <Navbar mode="main" />
+    <HomePage />
+    <ProjectsSection />
+    <SkillsSection />
+    <ExperienceSection />
+    <Footer />
+    <ScrollToTopButton />
+  </div>
+);
+```
+
+### Navbar Component (Two Modes)
+```javascript
+const Navbar = ({ mode = 'main' }) => {
+  const { darkMode, toggleTheme } = useTheme();
+
+  return (
+    <nav className={getThemeClasses('border-b',
+      { light: 'bg-white border-gray-200', dark: 'bg-gray-900 border-gray-800' }, darkMode)}>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between h-16">
+          {mode === 'project' && (
+            <Link to="/" className="flex items-center text-gray-700 dark:text-gray-300 hover:text-blue-600">
+              <ArrowLeft className="mr-2" /> Back
+            </Link>
+          )}
+          <Link to="/" className="text-xl font-bold text-gray-900 dark:text-white">
+            Matthew Morgan
+          </Link>
+          <div className="flex items-center space-x-4">
+            {mode === 'main' && (
+              <div className="hidden md:flex space-x-8">
+                <a href="#home" className="text-gray-700 dark:text-gray-300 hover:text-blue-600">Home</a>
+                <a href="#projects" className="text-gray-700 dark:text-gray-300 hover:text-blue-600">Projects</a>
+                <a href="#contact" className="text-gray-700 dark:text-gray-300 hover:text-blue-600">Contact</a>
+              </div>
+            )}
+            <button onClick={toggleTheme} className="p-2 hover:text-blue-600">
+              {darkMode ? <Sun /> : <Moon />}
+            </button>
+          </div>
+        </div>
+      </div>
+    </nav>
+  );
+};
+```
+
+## Section Styling Patterns
+
+### Section Base Structure
+```javascript
+<section className={getThemeClasses(theme.styles.section.base, theme.styles.section, darkMode)}>
+  <div className={theme.styles.container}>
+    <motion.div {...theme.animations.fadeInUp} className="text-center mb-16">
+      <h2 className={theme.styles.text.heading.primary}>Section Title</h2>
+      <div className={getThemeClasses(theme.styles.divider.base, theme.styles.divider, darkMode)}></div>
+      <p className="mt-6 max-w-2xl mx-auto text-lg opacity-90">Description</p>
+    </motion.div>
+    {/* Section content */}
+  </div>
+</section>
+```
+
+### Card Components
+```javascript
+<div className={getThemeClasses('rounded-xl overflow-hidden transition-all duration-300',
+  { light: 'bg-white shadow-lg hover:shadow-xl', dark: 'bg-gray-900 shadow-lg hover:shadow-xl' }, darkMode)}>
+  {/* Card content */}
+</div>
+```
+
+### Button Styles
+```javascript
+// Primary button
+className={getThemeClasses(theme.styles.button.primary.base, theme.styles.button.primary, darkMode)}
+
+// Secondary button
+className={getThemeClasses('text-sm', { light: 'text-blue-600 hover:text-blue-500', dark: 'text-blue-400 hover:text-blue-300' }, darkMode)}
+```
+
+## Project Pages
+
+### Project Page Layout
+```javascript
+const ProjectPage = () => {
+  return (
+    <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
+      <Navbar mode="project" />
+
+      {/* Hero Section */}
+      <header className="relative">
+        <img src={bannerImage} className="w-full h-64 md:h-96 object-cover" />
+        <div className="max-w-6xl mx-auto px-6 py-16">
+          <h1 className="text-4xl md:text-6xl font-bold mb-4">{title}</h1>
+          <p className="text-xl text-gray-600 dark:text-gray-400">{date}</p>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-6xl mx-auto px-6 py-16 space-y-16">
+        {/* About, Specifications, Content Sections, Reflection */}
+      </main>
+
+      <Footer />
+    </div>
+  );
+};
+```
+
+## Footer
+```javascript
+<footer className={getThemeClasses('py-10 border-t',
+  { light: 'bg-white border-gray-200', dark: 'bg-gray-900 border-gray-800' }, darkMode)}>
+  <div className={theme.styles.container}>
+    <div className="flex flex-col md:flex-row justify-between items-center">
+      <div>
+        <h2 className="text-xl font-bold">
+          <span className={getThemeClasses('', { light: 'text-blue-600', dark: 'text-blue-400' }, darkMode)}>
+            Matthew Morgan
+          </span>
+        </h2>
+        <p className="mt-2 opacity-80">Built with React</p>
+      </div>
+      <div className="flex space-x-6">
+        {/* Social links */}
+      </div>
+    </div>
+    <div className="mt-8 text-center text-sm opacity-60">
+      © {new Date().getFullYear()} Matthew Morgan. All rights reserved.
+    </div>
+  </div>
+</footer>
+```
+
+## Key Design Principles
+
+1. **Color Scheme**: Blue primary (#3b82f6), gray backgrounds, white/dark text
+2. **Typography**: Clean sans-serif, large headings, good line spacing
+3. **Spacing**: Consistent 24px section padding, 6xl max-width containers
+4. **Shadows**: Subtle shadows on cards and buttons
+5. **Animations**: Smooth fade-in-up animations, hover effects
+6. **Responsive**: Mobile-first design with responsive grids
+7. **Dark Mode**: Comprehensive dark mode support with theme persistence
+8. **Accessibility**: Semantic HTML, proper contrast ratios, keyboard navigation
+
+## Implementation Notes
+
+- Use the theme system consistently across all components
+- Apply `getThemeClasses` for all theme-aware styling
+- Include Framer Motion animations on scroll-triggered elements
+- Maintain the blue accent color for interactive elements
+- Use the container class for consistent max-widths
+- Implement smooth transitions for all interactive elements
+- Ensure all components work in both light and dark modes
+
+This styling system creates a cohesive, professional portfolio that can be easily extended with new sections or pages while maintaining visual consistency.

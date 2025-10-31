@@ -1,0 +1,6 @@
+numpy
+Pillow
+flask
+flask-cors
+opencv-python
+scikit-image

@@ -45,6 +45,7 @@ def visualize():
         board_height = data.get('boardHeight', 730)
         method = data.get('method', 'contour')
         spacing = data.get('spacing', 4)
+        adaptive = data.get('adaptive', True)
 
         if not images and not text_elements:
             return jsonify({'error': 'No images or text elements provided'}), 400
@@ -116,7 +117,7 @@ def visualize():
                             image_path, board_width, board_height, x, y, width, height
                         )
                         pixel_paths_hatch, paths_hatch, intermediates_hatch = image_to_hatch_paths(
-                            image_path, board_width, board_height, x, y, width, height, spacing=spacing
+                            image_path, board_width, board_height, x, y, width, height, spacing=spacing, adaptive=adaptive
                         )
                         # Combine contour and hatch paths
                         paths = paths_contour + paths_hatch if paths_contour and paths_hatch else (paths_contour or paths_hatch or [])

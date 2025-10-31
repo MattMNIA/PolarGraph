@@ -213,6 +213,8 @@ const Whiteboard = () => {
   const [isVisualizing, setIsVisualizing] = useState(false);
   const [visualizationResult, setVisualizationResult] = useState(null);
   const [animationResult, setAnimationResult] = useState(null);
+  const [isCreatingAnimation, setIsCreatingAnimation] = useState(false);
+  const [animationController, setAnimationController] = useState(null);
 
   const handleMouseDown = (e, element) => {
     if (e.target.closest('.delete-btn') || e.target.closest('.resize-handle')) return;
@@ -245,7 +247,17 @@ const Whiteboard = () => {
       const rect = canvasRef.current.getBoundingClientRect();
       const newX = e.clientX - rect.left - dragOffset.x;
       const newY = e.clientY - rect.top - dragOffset.y;
-      updateElement(dragging, { x: Math.max(0, newX), y: Math.max(0, newY) });
+      
+      // Get the dragging element to calculate bounds
+      const element = elements.find(el => el.id === dragging);
+      if (element) {
+        const maxX = 1150 - element.width;  // Canvas width minus element width
+        const maxY = 730 - element.height; // Canvas height minus element height
+        updateElement(dragging, { 
+          x: Math.max(0, Math.min(maxX, newX)), 
+          y: Math.max(0, Math.min(maxY, newY)) 
+        });
+      }
     } else if (resizing) {
       const deltaX = e.clientX - resizeStart.x;
       const deltaY = e.clientY - resizeStart.y;
@@ -379,67 +391,95 @@ const Whiteboard = () => {
 
   // Animation creation function
   const createAnimation = async () => {
-    // Use the same data as the visualization
-    const imageElements = elements.filter(el => el.type === 'image');
-    const textElements = elements.filter(el => el.type === 'text');
-    const canvasWidth = 1150;
-    const canvasHeight = 730;
+    if (isCreatingAnimation) return; // Prevent multiple simultaneous requests
 
-    const positions = [];
-    const imagePaths = [];
-    const textData = [];
+    setIsCreatingAnimation(true);
+    setAnimationResult(null);
 
-    imageElements.forEach(element => {
-      const x = Math.round(element.x);
-      const y = Math.round(element.y);
-      const width = Math.round(element.width);
-      const height = Math.round(element.height);
+    const controller = new AbortController();
+    setAnimationController(controller);
 
-      positions.push(x, y, width, height);
-      imagePaths.push(element.src);
-    });
+    try {
+      // Use the same data as the visualization
+      const imageElements = elements.filter(el => el.type === 'image');
+      const textElements = elements.filter(el => el.type === 'text');
+      const canvasWidth = 1150;
+      const canvasHeight = 730;
 
-    textElements.forEach(element => {
-      textData.push({
-        text: element.text,
-        x: Math.round(element.x),
-        y: Math.round(element.y),
-        width: Math.round(element.width),
-        height: Math.round(element.height),
-        fontSize: element.fontSize,
-        fontFamily: element.fontFamily,
-        isBold: element.isBold,
-        isItalic: element.isItalic,
-        color: element.color,
-        textRenderingStyle: element.textRenderingStyle,
+      const positions = [];
+      const imagePaths = [];
+      const textData = [];
+
+      imageElements.forEach(element => {
+        const x = Math.round(element.x);
+        const y = Math.round(element.y);
+        const width = Math.round(element.width);
+        const height = Math.round(element.height);
+
+        positions.push(x, y, width, height);
+        imagePaths.push(element.src);
       });
-    });
 
-    // Call the animation endpoint
-    const response = await fetch('http://localhost:3001/api/animation', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        images: imagePaths,
-        positions: positions,
-        textElements: textData,
-        boardWidth: canvasWidth,
-        boardHeight: canvasHeight,
-        method: drawingMethod,
-        spacing: hatchSpacing,
-      }),
-    });
+      textElements.forEach(element => {
+        textData.push({
+          text: element.text,
+          x: Math.round(element.x),
+          y: Math.round(element.y),
+          width: Math.round(element.width),
+          height: Math.round(element.height),
+          fontSize: element.fontSize,
+          fontFamily: element.fontFamily,
+          isBold: element.isBold,
+          isItalic: element.isItalic,
+          color: element.color,
+          textRenderingStyle: element.textRenderingStyle,
+        });
+      });
 
-    if (!response.ok) {
-      throw new Error(`Animation creation failed: ${response.statusText}`);
+      // Call the animation endpoint
+      const response = await fetch('http://localhost:3001/api/animation', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          images: imagePaths,
+          positions: positions,
+          textElements: textData,
+          boardWidth: canvasWidth,
+          boardHeight: canvasHeight,
+          method: drawingMethod,
+          spacing: hatchSpacing,
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`Animation creation failed: ${response.statusText}`);
+      }
+
+      const result = await response.json();
+      setAnimationResult(result);
+
+      return result;
+    } catch (error) {
+      if (error.name === 'AbortError') {
+        console.log('Animation creation was cancelled');
+      } else {
+        console.error('Animation creation error:', error);
+        alert('Failed to create animation. Please check the console for details.');
+      }
+    } finally {
+      setIsCreatingAnimation(false);
+      setAnimationController(null);
     }
+  };
 
-    const result = await response.json();
-    setAnimationResult(result);
-
-    return result;
+  // Cancel animation function
+  const cancelAnimation = () => {
+    if (animationController) {
+      animationController.abort();
+    }
   };
 
   return (
@@ -511,29 +551,46 @@ const Whiteboard = () => {
                       </motion.button>
                     </div>
 
-                    {/* Compute button positioned on the right, centered vertically */}
+                    {/* Compute/Cancel button positioned on the right, centered vertically */}
                     <div className="absolute top-1/2 right-4 transform -translate-y-1/2">
-                      <motion.button
-                        onClick={runVisualization}
-                        disabled={isVisualizing || elements.length === 0}
-                        className={getThemeClasses(
-                          theme.styles.button.primary.base + ' flex items-center gap-2 px-6 py-3 text-base font-medium',
-                          theme.styles.button.primary, darkMode
-                        )}
-                        {...theme.animations.hover}
-                      >
-                        {isVisualizing ? (
-                          <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                            Computing...
-                          </>
-                        ) : (
-                          <>
-                            <Play className="w-4 h-4" />
-                            Compute Simplified Image
-                          </>
-                        )}
-                      </motion.button>
+                      {isCreatingAnimation ? (
+                        <motion.button
+                          onClick={cancelAnimation}
+                          className={getThemeClasses(
+                            'flex items-center gap-2 px-6 py-3 text-base font-medium rounded-lg border',
+                            {
+                              light: 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100',
+                              dark: 'bg-red-900 border-red-700 text-red-300 hover:bg-red-800'
+                            }, darkMode
+                          )}
+                          {...theme.animations.hover}
+                        >
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
+                          Cancel Animation
+                        </motion.button>
+                      ) : (
+                        <motion.button
+                          onClick={runVisualization}
+                          disabled={isVisualizing || elements.length === 0}
+                          className={getThemeClasses(
+                            theme.styles.button.primary.base + ' flex items-center gap-2 px-6 py-3 text-base font-medium',
+                            theme.styles.button.primary, darkMode
+                          )}
+                          {...theme.animations.hover}
+                        >
+                          {isVisualizing ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                              Computing...
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-4 h-4" />
+                              Compute Simplified Image
+                            </>
+                          )}
+                        </motion.button>
+                      )}
                     </div>
                   </div>
                 </motion.div>
@@ -940,7 +997,28 @@ const Whiteboard = () => {
                   )}
 
                   {/* Animation */}
-                  {animationResult?.animationGif && (
+                  {isCreatingAnimation ? (
+                    <div className="text-center">
+                      <h4 className="text-sm font-medium mb-2">Drawing Animation</h4>
+                      <div className="flex flex-col items-center justify-center space-y-4 p-8 rounded-lg border mx-auto" style={{ height: '350px', width: '100%', maxWidth: '350px' }}>
+                        <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500"></div>
+                        <div>
+                          <p className="text-sm opacity-75 mb-2">Generating animation...</p>
+                          <motion.button
+                            onClick={cancelAnimation}
+                            className={getThemeClasses('px-3 py-1 text-sm rounded border', {
+                              light: 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100',
+                              dark: 'bg-red-900 border-red-700 text-red-300 hover:bg-red-800'
+                            }, darkMode)}
+                            {...theme.animations.hover}
+                          >
+                            Cancel
+                          </motion.button>
+                        </div>
+                      </div>
+                      <p className="text-xs opacity-75 mt-2">Animated sequence</p>
+                    </div>
+                  ) : animationResult?.animationGif ? (
                     <div className="text-center">
                       <h4 className="text-sm font-medium mb-2">Drawing Animation</h4>
                       <img
@@ -964,7 +1042,7 @@ const Whiteboard = () => {
                         Download GIF
                       </motion.button>
                     </div>
-                  )}
+                  ) : null}
                 </div>
 
                 {/* Stats */}

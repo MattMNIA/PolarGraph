@@ -134,14 +134,14 @@ def generate_hatch_lines(gray, spacing=8, angle=0, brightness_threshold=180):
         return paths
     elif angle == 45:
         # 45 degree lines
-        for d in range(-h, w, spacing):
+        for d in range(-h, w + h, spacing):
             current_path = []
             start_i = max(0, -d)
             end_i = min(w, h - d)
             for i in range(start_i, end_i):
                 x = i
                 y = i + d
-                if gray[y, x] < brightness_threshold:
+                if 0 <= y < h and gray[y, x] < brightness_threshold:
                     current_path.append((x, y))
                 else:
                     if current_path:
@@ -152,7 +152,7 @@ def generate_hatch_lines(gray, spacing=8, angle=0, brightness_threshold=180):
         return paths
     elif angle == 135:
         # 135 degree lines
-        for d in range(0, w + h, spacing):
+        for d in range(-h, w + h, spacing):
             current_path = []
             start_i = max(0, d - h + 1)
             end_i = min(d + 1, w)

@@ -47,8 +47,8 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
     w, h = img.size
     if width is not None and height is not None:
         # Use specified dimensions
-        target_w = int(width)
-        target_h = int(height)
+        target_w = max(1, int(width))  # Ensure minimum of 1
+        target_h = max(1, int(height))  # Ensure minimum of 1
     else:
         # Auto-scale to fit board while preserving aspect ratio
         scale = min(board_width / w, board_height / h)
@@ -287,8 +287,8 @@ def image_to_hatch_paths(image_path: str, board_width: int, board_height: int,
     w, h = img.size
     if width is not None and height is not None:
         # Use specified dimensions
-        target_w = int(width)
-        target_h = int(height)
+        target_w = max(1, int(width))  # Ensure minimum of 1
+        target_h = max(1, int(height))  # Ensure minimum of 1
     else:
         # Auto-scale to fit board while preserving aspect ratio
         scale = min(board_width / w, board_height / h)

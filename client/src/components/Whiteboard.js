@@ -116,6 +116,7 @@ const Whiteboard = () => {
   const [isItalic, setIsItalic] = useState(false);
   const [selectedColor, setSelectedColor] = useState(darkMode ? '#ffffff' : '#000000');
   const [textRenderingStyle, setTextRenderingStyle] = useState('filled'); // 'filled' or 'outline'
+  const [isDragOver, setIsDragOver] = useState(false);
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -124,9 +125,8 @@ const Whiteboard = () => {
     setSelectedColor(darkMode ? '#ffffff' : '#000000');
   }, [darkMode]);
 
-  const handleImageUpload = (event) => {
-    const file = event.target.files[0];
-    if (file) {
+  const processImageFile = (file) => {
+    if (file && file.type.startsWith('image/')) {
       const reader = new FileReader();
       reader.onload = (e) => {
         // Create a temporary image to get dimensions
@@ -164,6 +164,11 @@ const Whiteboard = () => {
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const handleImageUpload = (event) => {
+    const file = event.target.files[0];
+    processImageFile(file);
   };
 
   const addTextElement = () => {
@@ -207,8 +212,8 @@ const Whiteboard = () => {
 
   // Drawing method state
   const [drawingMethod, setDrawingMethod] = useState('contour');
-  const [hatchSpacing, setHatchSpacing] = useState(4);
-  const [adaptiveHatching, setAdaptiveHatching] = useState(true);
+  const [hatchSpacing, setHatchSpacing] = useState(6);
+  const [adaptiveHatching, setAdaptiveHatching] = useState(false);
 
   // Visualization state
   const [isVisualizing, setIsVisualizing] = useState(false);
@@ -222,9 +227,14 @@ const Whiteboard = () => {
     if (!canvasRef.current) return; // Guard against null ref
     setDragging(element.id);
     const rect = canvasRef.current.getBoundingClientRect();
+    const canvasWidth = rect.width;
+    const canvasHeight = rect.height;
+    const scaleX = canvasWidth / 1150; // Display width / original canvas width
+    const scaleY = canvasHeight / 730; // Display height / original canvas height
+    
     setDragOffset({
-      x: e.clientX - rect.left - element.x,
-      y: e.clientY - rect.top - element.y,
+      x: e.clientX - rect.left - (element.x * scaleX),
+      y: e.clientY - rect.top - (element.y * scaleY),
     });
   };
 
@@ -246,8 +256,13 @@ const Whiteboard = () => {
     if (dragging) {
       if (!canvasRef.current) return; // Guard against null ref
       const rect = canvasRef.current.getBoundingClientRect();
-      const newX = e.clientX - rect.left - dragOffset.x;
-      const newY = e.clientY - rect.top - dragOffset.y;
+      const canvasWidth = rect.width;
+      const canvasHeight = rect.height;
+      const scaleX = 1150 / canvasWidth; // Original canvas width / current display width
+      const scaleY = 730 / canvasHeight; // Original canvas height / current display height
+      
+      const mouseX = (e.clientX - rect.left - dragOffset.x) * scaleX;
+      const mouseY = (e.clientY - rect.top - dragOffset.y) * scaleY;
       
       // Get the dragging element to calculate bounds
       const element = elements.find(el => el.id === dragging);
@@ -255,8 +270,8 @@ const Whiteboard = () => {
         const maxX = 1150 - element.width;  // Canvas width minus element width
         const maxY = 730 - element.height; // Canvas height minus element height
         updateElement(dragging, { 
-          x: Math.max(0, Math.min(maxX, newX)), 
-          y: Math.max(0, Math.min(maxY, newY)) 
+          x: Math.max(0, Math.min(maxX, mouseX)), 
+          y: Math.max(0, Math.min(maxY, mouseY)) 
         });
       }
     } else if (resizing) {
@@ -276,7 +291,7 @@ const Whiteboard = () => {
         updateElement(resizing, { width: newWidth, height: newHeight });
       }
     }
-  }, [dragging, dragOffset, resizing, resizeStart, updateElement, uniformScaling]);
+  }, [dragging, dragOffset, resizing, resizeStart, updateElement, uniformScaling, elements]);
 
   const handleMouseUp = useCallback(() => {
     setDragging(null);
@@ -293,6 +308,26 @@ const Whiteboard = () => {
       };
     }
   }, [dragging, resizing, handleMouseMove, handleMouseUp]);
+
+  // Paste event listener for clipboard images
+  React.useEffect(() => {
+    const handlePaste = (e) => {
+      const items = e.clipboardData?.items;
+      if (items) {
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          if (item.type.indexOf('image') !== -1) {
+            const file = item.getAsFile();
+            processImageFile(file);
+            break; // Only process the first image
+          }
+        }
+      }
+    };
+
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, []);
 
   // Visualization function
   const runVisualization = async () => {
@@ -452,6 +487,7 @@ const Whiteboard = () => {
           boardHeight: canvasHeight,
           method: drawingMethod,
           spacing: hatchSpacing,
+          adaptive: adaptiveHatching,
         }),
         signal: controller.signal,
       });
@@ -511,20 +547,20 @@ const Whiteboard = () => {
       </section>
 
       {/* Main Content Section - Controls + Canvas */}
-      <section className={getThemeClasses('py-2', { light: 'bg-gray-100', dark: 'bg-gray-800' }, darkMode)}>
+      <section className={getThemeClasses('py-2 min-h-screen', { light: 'bg-gray-100', dark: 'bg-gray-800' }, darkMode)}>
         <div className="max-w-full px-4">
-          <div className="grid grid-cols-1 xl:grid-cols-4 gap-8 h-screen">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0">
             {/* Left Side - Controls */}
-            <div className="xl:col-span-2 space-y-8 overflow-y-auto">
+            <div className="space-y-6 lg:pr-4">
               <motion.div
                 {...theme.animations.fadeInUp}
-                className="text-center mb-8"
+                className="text-center mb-6"
               >
                 <h2 className={theme.styles.text.heading.secondary}>Design Controls</h2>
                 <p className="opacity-90">Add and customize elements for your whiteboard</p>
               </motion.div>
 
-              <div className="space-y-6">
+              <div className="space-y-4">
                 {/* Image Upload & Generate Path Card */}
                 <motion.div
                   {...theme.animations.staggerItem}
@@ -551,6 +587,9 @@ const Whiteboard = () => {
                         <Upload className="w-4 h-4 mr-2 inline" />
                         Upload Image
                       </motion.button>
+                      <p className="text-sm opacity-75">
+                        Or drag & drop images onto the canvas, or paste images from your clipboard (Ctrl+V)
+                      </p>
                     </div>
 
                     {/* Compute/Cancel button positioned on the right, centered vertically */}
@@ -797,7 +836,7 @@ const Whiteboard = () => {
                           </label>
                           <input
                             type="range"
-                            min="2"
+                            min="6"
                             max="20"
                             value={hatchSpacing}
                             onChange={(e) => setHatchSpacing(parseInt(e.target.value))}
@@ -818,26 +857,62 @@ const Whiteboard = () => {
             </div>
 
             {/* Right Side - Canvas */}
-            <div className="xl:col-span-2 flex flex-col">
+            <div className="flex flex-col">
               <motion.div
                 {...theme.animations.fadeInUp}
-                className="text-center mb-8"
+                className="text-center mb-6"
               >
                 <h2 className={theme.styles.text.heading.secondary}>Canvas</h2>
-                <p className="opacity-90">Drag and resize your elements on the whiteboard</p>
+                <p className="opacity-90">Drag and resize your elements on the whiteboard, or drag & drop images here</p>
               </motion.div>
 
-              <motion.div
-                {...theme.animations.fadeInUp}
-                ref={canvasRef}
-                className={getThemeClasses(
-                  'relative border-2 border-dashed rounded-xl overflow-hidden mx-auto',
-                  { light: 'bg-white border-gray-300', dark: 'bg-gray-800 border-gray-600' }, darkMode
-                )}
-                style={{ width: '1150px', height: '730px', cursor: dragging ? 'grabbing' : resizing ? 'se-resize' : 'default' }}
-                onMouseMove={handleMouseMove}
-                onMouseUp={handleMouseUp}
-              >
+              <div className="flex-1 flex items-center justify-center min-h-[400px]">
+                <motion.div
+                  {...theme.animations.fadeInUp}
+                  ref={canvasRef}
+                  className={getThemeClasses(
+                    'relative border-2 border-dashed rounded-xl overflow-hidden shadow-lg transition-colors duration-200',
+                    { 
+                      light: `bg-white ${isDragOver ? 'border-blue-400 bg-blue-50' : 'border-gray-300'}`, 
+                      dark: `bg-gray-800 ${isDragOver ? 'border-blue-400 bg-blue-900' : 'border-gray-600'}` 
+                    }, darkMode
+                  )}
+                  style={{
+                    width: '100%',
+                    maxWidth: '1150px',
+                    aspectRatio: '1150/730',
+                    cursor: dragging ? 'grabbing' : resizing ? 'se-resize' : 'default',
+                    minHeight: '400px'
+                  }}
+                  onMouseMove={handleMouseMove}
+                  onMouseUp={handleMouseUp}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    if (!dragging && !resizing) {
+                      setIsDragOver(true);
+                    }
+                  }}
+                  onDragEnter={(e) => {
+                    e.preventDefault();
+                    if (!dragging && !resizing) {
+                      setIsDragOver(true);
+                    }
+                  }}
+                  onDragLeave={(e) => {
+                    e.preventDefault();
+                    if (!dragging && !resizing) {
+                      setIsDragOver(false);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    setIsDragOver(false);
+                    if (dragging || resizing) return;
+                    
+                    const files = Array.from(e.dataTransfer.files);
+                    files.forEach(file => processImageFile(file));
+                  }}
+                >
                 <AnimatePresence>
                   {elements
                     .sort((a, b) => {
@@ -863,8 +938,8 @@ const Whiteboard = () => {
                       onMouseDown={(e) => handleMouseDown(e, element)}
                     >
                       <div className={getThemeClasses(
-                        'relative w-full h-full border rounded-lg overflow-hidden transition-all duration-200',
-                        { light: element.type === 'text' ? 'border-gray-300 shadow-lg group-hover:shadow-xl' : 'bg-white border-gray-200 shadow-lg group-hover:shadow-xl', dark: element.type === 'text' ? 'border-gray-600 shadow-lg group-hover:shadow-xl' : 'bg-gray-700 border-gray-600 shadow-lg group-hover:shadow-xl' }, darkMode
+                        'relative w-full h-full border rounded-lg overflow-hidden',
+                        { light: element.type === 'text' ? 'border-gray-300' : 'border-gray-200', dark: element.type === 'text' ? 'border-gray-600' : 'border-gray-600' }, darkMode
                       )}>
                         {element.type === 'image' ? (
                           <img
@@ -906,10 +981,14 @@ const Whiteboard = () => {
 
                         {/* Resize handle */}
                         <div
-                          className="resize-handle absolute bottom-0 right-0 w-4 h-4 bg-blue-500 rounded-tl-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-se-resize"
-                          onMouseDown={(e) => handleResizeMouseDown(e, element)}
+                          className="resize-handle absolute bottom-0 right-0 w-6 h-6 bg-blue-500 hover:bg-blue-600 rounded-tl-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-se-resize flex items-end justify-end"
+                          onMouseDown={(e) => {
+                            e.stopPropagation();
+                            handleResizeMouseDown(e, element);
+                          }}
+                          style={{ zIndex: 10 }}
                         >
-                          <div className="absolute bottom-1 right-1 w-2 h-2 border-r-2 border-b-2 border-white"></div>
+                          <div className="w-3 h-3 border-r-2 border-b-2 border-white mb-0.5 mr-0.5"></div>
                         </div>
                       </div>
                     </motion.div>
@@ -929,6 +1008,7 @@ const Whiteboard = () => {
                   </motion.div>
                 )}
               </motion.div>
+              </div>
 
               {/* Stats */}
               <motion.div

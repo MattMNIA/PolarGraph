@@ -2,6 +2,9 @@
 #include <WebServer.h>
 #include <ArduinoJson.h>
 #include <TMCStepper.h>
+#include <ESP32Servo.h>
+#include <math.h>
+#include <limits.h>
 
 constexpr char WIFI_SSID[] = "Pataflafla";
 constexpr char WIFI_PASS[] = "(l)Rlr(r)L(l)R";
@@ -15,6 +18,31 @@ constexpr uint32_t DEFAULT_SPEED = 1200;   // steps per second
 constexpr uint16_t DEFAULT_CURRENT = 800;  // milliamps
 constexpr uint32_t MAX_SPEED = 5000;       // guard rail for mechanics
 constexpr uint8_t MIN_PULSE_US = 2;        // high/low pulse width
+
+// Polargraph geometry configuration (calibrate on your machine)
+constexpr float BOARD_WIDTH_MM = 1150.0f;
+constexpr float BOARD_HEIGHT_MM = 730.0f;
+constexpr uint16_t STEPS_PER_REV = 200;
+constexpr uint8_t MICROSTEPS = 16;
+constexpr float SPOOL_DIAMETER_MM = 32.0f;   // change to match actual spool
+constexpr float SPOOL_CIRCUMFERENCE_MM = SPOOL_DIAMETER_MM * PI;
+constexpr float STEPS_PER_MM = (STEPS_PER_REV * MICROSTEPS) / SPOOL_CIRCUMFERENCE_MM;
+
+constexpr int PEN_SERVO_PIN = 19;
+constexpr int PEN_UP_ANGLE = 40;     // adjust for your linkage
+constexpr int PEN_DOWN_ANGLE = 105;  // adjust for your linkage
+constexpr uint16_t PEN_SERVO_SETTLE_MS = 200;
+
+struct MachineState {
+  float x_mm;
+  float y_mm;
+  float left_len_mm;
+  float right_len_mm;
+  int64_t left_steps;
+  int64_t right_steps;
+  bool pen_down;
+  bool initialized;
+};
 
 struct MotorConfig {
   const char* id;
@@ -35,6 +63,11 @@ MotorConfig motors[] = {
 };
 
 WebServer server(80);
+
+MachineState machine = {0.0f, 0.0f, 0.0f, 0.0f, 0, 0, false, false};
+
+Servo penServo;
+bool servoPenDown = false;
 
 void addCorsHeaders() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
@@ -97,6 +130,118 @@ void performSteps(MotorConfig& motor, int32_t steps, uint32_t speed) {
   motor.busy = false;
 }
 
+void pulsePin(uint8_t pin) {
+  digitalWrite(pin, HIGH);
+  delayMicroseconds(MIN_PULSE_US);
+  digitalWrite(pin, LOW);
+}
+
+void runDualMotorSteps(int32_t leftDelta, int32_t rightDelta, uint32_t speed) {
+  MotorConfig& left = motors[0];
+  MotorConfig& right = motors[1];
+
+  const uint32_t leftSteps = static_cast<uint32_t>(abs(leftDelta));
+  const uint32_t rightSteps = static_cast<uint32_t>(abs(rightDelta));
+  const uint32_t maxSteps = max(leftSteps, rightSteps);
+  if (maxSteps == 0) {
+    return;
+  }
+
+  const uint32_t targetSpeed = clampSpeed(speed);
+  const uint32_t stepDelayUs = max(1000000UL / targetSpeed, static_cast<uint32_t>(MIN_PULSE_US * 4));
+
+  left.busy = true;
+  right.busy = true;
+
+  enableMotor(left, true);
+  enableMotor(right, true);
+
+  digitalWrite(left.dirPin, leftDelta >= 0 ? HIGH : LOW);
+  digitalWrite(right.dirPin, rightDelta >= 0 ? HIGH : LOW);
+
+  uint32_t accLeft = 0;
+  uint32_t accRight = 0;
+
+  for (uint32_t i = 0; i < maxSteps; ++i) {
+    accLeft += leftSteps;
+    accRight += rightSteps;
+
+    if (accLeft >= maxSteps) {
+      accLeft -= maxSteps;
+      pulsePin(left.stepPin);
+    }
+
+    if (accRight >= maxSteps) {
+      accRight -= maxSteps;
+      pulsePin(right.stepPin);
+    }
+
+    delayMicroseconds(stepDelayUs);
+  }
+
+  left.busy = false;
+  right.busy = false;
+}
+
+void applyPenState(bool down) {
+  if (!penServo.attached()) {
+    return;
+  }
+  if (servoPenDown == down) {
+    return;
+  }
+  const int angle = down ? PEN_DOWN_ANGLE : PEN_UP_ANGLE;
+  penServo.write(angle);
+  delay(PEN_SERVO_SETTLE_MS);
+  servoPenDown = down;
+}
+
+bool computeStringLengths(float x, float y, float& leftLen, float& rightLen) {
+  if (x < 0 || y < 0) {
+    return false;
+  }
+  // motors mounted at (0,0) and (board width, 0)
+  leftLen = sqrtf(x * x + y * y);
+  const float dx = BOARD_WIDTH_MM - x;
+  rightLen = sqrtf(dx * dx + y * y);
+  if (!(isfinite(leftLen) && isfinite(rightLen))) {
+    return false;
+  }
+  return true;
+}
+
+bool moveToXY(float x, float y, bool penDown, uint32_t speed) {
+  float targetLeftLen = 0.0f;
+  float targetRightLen = 0.0f;
+  if (!computeStringLengths(x, y, targetLeftLen, targetRightLen)) {
+    return false;
+  }
+
+  const int64_t targetLeftSteps = llround(static_cast<double>(targetLeftLen) * static_cast<double>(STEPS_PER_MM));
+  const int64_t targetRightSteps = llround(static_cast<double>(targetRightLen) * static_cast<double>(STEPS_PER_MM));
+
+  const int64_t leftDelta = targetLeftSteps - machine.left_steps;
+  const int64_t rightDelta = targetRightSteps - machine.right_steps;
+
+  if (llabs(leftDelta) > INT32_MAX || llabs(rightDelta) > INT32_MAX) {
+    return false;
+  }
+
+  applyPenState(penDown);
+
+  runDualMotorSteps(static_cast<int32_t>(leftDelta), static_cast<int32_t>(rightDelta), speed);
+
+  machine.left_steps = targetLeftSteps;
+  machine.right_steps = targetRightSteps;
+  machine.left_len_mm = targetLeftLen;
+  machine.right_len_mm = targetRightLen;
+  machine.x_mm = x;
+  machine.y_mm = y;
+  machine.pen_down = penDown;
+
+  return true;
+}
+
 void handleMove() {
   addCorsHeaders();
   if (server.method() != HTTP_POST) {
@@ -151,7 +296,7 @@ void handleMove() {
 
 void handleStatus() {
   addCorsHeaders();
-  StaticJsonDocument<192> doc;
+  StaticJsonDocument<512> doc;
   doc["wifi"]["ip"] = WiFi.localIP().toString();
 
   JsonArray motorsArray = doc.createNestedArray("motors");
@@ -161,6 +306,20 @@ void handleStatus() {
     entry["busy"] = motor.busy;
   }
 
+  JsonObject state = doc.createNestedObject("state");
+  state["initialized"] = machine.initialized;
+  state["x_mm"] = machine.x_mm;
+  state["y_mm"] = machine.y_mm;
+  state["penDown"] = machine.pen_down;
+
+  JsonObject lengths = state.createNestedObject("lengths_mm");
+  lengths["left"] = machine.left_len_mm;
+  lengths["right"] = machine.right_len_mm;
+
+  JsonObject steps = state.createNestedObject("steps");
+  steps["left"] = machine.left_steps;
+  steps["right"] = machine.right_steps;
+
   String payload;
   serializeJson(doc, payload);
   server.send(200, "application/json", payload);
@@ -169,6 +328,144 @@ void handleStatus() {
 void handleRoot() {
   addCorsHeaders();
   server.send(200, "text/plain", "ESP32 motion controller online.");
+}
+
+void handlePen() {
+  addCorsHeaders();
+  if (server.method() != HTTP_POST) {
+    server.send(405, "application/json", "{\"error\":\"Use POST\"}");
+    return;
+  }
+
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"error\":\"Missing body\"}");
+    return;
+  }
+
+  StaticJsonDocument<128> doc;
+  const DeserializationError err = deserializeJson(doc, server.arg("plain"));
+  if (err) {
+    server.send(400, "application/json", "{\"error\":\"Bad JSON\"}");
+    return;
+  }
+
+  const bool penDown = doc["penDown"] | false;
+  applyPenState(penDown);
+  machine.pen_down = penDown;
+
+  StaticJsonDocument<128> response;
+  response["status"] = "ok";
+  response["penDown"] = penDown;
+
+  String payload;
+  serializeJson(response, payload);
+  server.send(200, "application/json", payload);
+}
+
+void handlePath() {
+  addCorsHeaders();
+  if (server.method() != HTTP_POST) {
+    server.send(405, "application/json", "{\"error\":\"Use POST\"}");
+    return;
+  }
+
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{\"error\":\"Missing body\"}");
+    return;
+  }
+
+  DynamicJsonDocument doc(16384);
+  const DeserializationError err = deserializeJson(doc, server.arg("plain"));
+  if (err) {
+    server.send(400, "application/json", "{\"error\":\"Bad JSON\"}");
+    return;
+  }
+
+  const bool reset = doc["reset"] | false;
+  const uint32_t defaultSpeed = doc["speed"] | DEFAULT_SPEED;
+
+  if (reset || !machine.initialized) {
+    JsonObject start = doc["startPosition"].as<JsonObject>();
+    if (start.isNull()) {
+      server.send(400, "application/json", "{\"error\":\"startPosition required to initialize\"}");
+      return;
+    }
+
+    const float startX = start["x"] | 0.0f;
+    const float startY = start["y"] | 0.0f;
+    float leftLen = start.containsKey("leftLengthMm") ? start["leftLengthMm"].as<float>() : 0.0f;
+    float rightLen = start.containsKey("rightLengthMm") ? start["rightLengthMm"].as<float>() : 0.0f;
+
+    if (!start.containsKey("leftLengthMm") || !start.containsKey("rightLengthMm")) {
+      if (!computeStringLengths(startX, startY, leftLen, rightLen)) {
+        server.send(422, "application/json", "{\"error\":\"Invalid startPosition coordinates\"}");
+        return;
+      }
+    }
+
+    machine.x_mm = startX;
+    machine.y_mm = startY;
+    machine.left_len_mm = leftLen;
+    machine.right_len_mm = rightLen;
+    if (start.containsKey("leftSteps")) {
+      machine.left_steps = start["leftSteps"].as<int64_t>();
+    } else {
+      machine.left_steps = llround(static_cast<double>(leftLen) * static_cast<double>(STEPS_PER_MM));
+    }
+    if (start.containsKey("rightSteps")) {
+      machine.right_steps = start["rightSteps"].as<int64_t>();
+    } else {
+      machine.right_steps = llround(static_cast<double>(rightLen) * static_cast<double>(STEPS_PER_MM));
+    }
+    machine.pen_down = start["penDown"] | false;
+    machine.initialized = true;
+    applyPenState(machine.pen_down);
+  }
+
+  if (!machine.initialized) {
+    server.send(409, "application/json", "{\"error\":\"Machine state unknown\"}");
+    return;
+  }
+
+  JsonArray points = doc["points"].as<JsonArray>();
+  if (points.isNull() || points.size() == 0) {
+    server.send(400, "application/json", "{\"error\":\"points array required\"}");
+    return;
+  }
+
+  uint32_t executed = 0;
+  for (JsonVariant entryVariant : points) {
+    JsonObject entry = entryVariant.as<JsonObject>();
+    if (entry.isNull()) {
+      continue;
+    }
+
+    const float targetX = entry["x"] | machine.x_mm;
+    const float targetY = entry["y"] | machine.y_mm;
+    const bool penDown = entry.containsKey("penDown") ? entry["penDown"].as<bool>() : machine.pen_down;
+    const uint32_t speed = entry["speed"] | defaultSpeed;
+
+    if (!moveToXY(targetX, targetY, penDown, speed)) {
+      server.send(422, "application/json", "{\"error\":\"Path execution failed\"}");
+      return;
+    }
+    executed++;
+  }
+
+  StaticJsonDocument<256> response;
+  response["status"] = "ok";
+  response["pointsProcessed"] = executed;
+  JsonObject state = response.createNestedObject("state");
+  state["x_mm"] = machine.x_mm;
+  state["y_mm"] = machine.y_mm;
+  state["penDown"] = machine.pen_down;
+  JsonObject steps = state.createNestedObject("steps");
+  steps["left"] = machine.left_steps;
+  steps["right"] = machine.right_steps;
+
+  String payload;
+  serializeJson(response, payload);
+  server.send(200, "application/json", payload);
 }
 
 void setupPins() {
@@ -188,6 +485,11 @@ void setup() {
   setupDriver(driverLeft);
   setupDriver(driverRight);
 
+  penServo.attach(PEN_SERVO_PIN, 500, 2400);
+  penServo.write(PEN_UP_ANGLE);
+  servoPenDown = false;
+  delay(PEN_SERVO_SETTLE_MS);
+
   WiFi.begin(WIFI_SSID, WIFI_PASS);
   Serial.print("Connecting to WiFi");
   while (WiFi.status() != WL_CONNECTED) {
@@ -203,6 +505,10 @@ void setup() {
   server.on("/api/status", HTTP_GET, handleStatus);
   server.on("/api/move", HTTP_OPTIONS, handleCorsPreflight);
   server.on("/api/move", HTTP_POST, handleMove);
+  server.on("/api/pen", HTTP_OPTIONS, handleCorsPreflight);
+  server.on("/api/pen", HTTP_POST, handlePen);
+  server.on("/api/path", HTTP_OPTIONS, handleCorsPreflight);
+  server.on("/api/path", HTTP_POST, handlePath);
   server.begin();
 }
 

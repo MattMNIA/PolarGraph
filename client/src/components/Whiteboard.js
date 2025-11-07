@@ -3,7 +3,7 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from './ThemeProvider';
 import { theme, getThemeClasses } from '../theme';
-import { Play, Download, Upload, Type, Palette, Settings, Eye, EyeOff, ChevronUp, Trash2, Sun, Moon } from 'lucide-react';
+import { Play, Pause, Download, Upload, Type, Palette, Settings, Eye, EyeOff, ChevronUp, Trash2, Sun, Moon } from 'lucide-react';
 
 // Navbar Component
 const Navbar = () => {
@@ -228,6 +228,26 @@ const Whiteboard = () => {
   const [pathSendError, setPathSendError] = useState(null);
   const statusPollRef = useRef(null);
 
+  const applyJobStatusUpdate = useCallback((update) => {
+    setPathJobStatus((prev) => {
+      if (!update) {
+        return null;
+      }
+      const statusValue = typeof update === 'object' ? update.status : undefined;
+      if (statusValue === 'idle') {
+        return null;
+      }
+      if (!prev) {
+        return typeof update === 'object' ? { ...update } : prev;
+      }
+      const merged = { ...prev, ...(typeof update === 'object' ? update : {}) };
+      if (!merged.status && prev.status) {
+        merged.status = prev.status;
+      }
+      return merged;
+    });
+  }, []);
+
   const handleMouseDown = (e, element) => {
     if (e.target.closest('.delete-btn') || e.target.closest('.resize-handle')) return;
     if (!canvasRef.current) return; // Guard against null ref
@@ -418,9 +438,9 @@ const Whiteboard = () => {
       const result = await response.json();
       setVisualizationResult(result);
       if (result.pathJob) {
-        setPathJobStatus(result.pathJob);
+        applyJobStatusUpdate(result.pathJob);
       } else {
-        setPathJobStatus(null);
+        applyJobStatusUpdate(null);
       }
       setPathSendError(null);
 
@@ -544,9 +564,9 @@ const Whiteboard = () => {
       }
       setVisualizationResult(data);
       if (data.pathJob) {
-        setPathJobStatus(data.pathJob);
+        applyJobStatusUpdate(data.pathJob);
       } else {
-        setPathJobStatus(null);
+        applyJobStatusUpdate(null);
       }
     } catch (error) {
       console.error('Path transmission error:', error);
@@ -562,12 +582,44 @@ const Whiteboard = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
+      const data = await response.json();
       if (response.ok) {
-        const data = await response.json();
-        setPathJobStatus(data);
+        applyJobStatusUpdate(data);
       }
     } catch (error) {
       console.error('Cancel transmission error:', error);
+      setPathSendError(error.message);
+    }
+  };
+
+  const pausePathTransmission = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/send-path/pause', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await response.json();
+      if (response.ok) {
+        applyJobStatusUpdate(data);
+      }
+    } catch (error) {
+      console.error('Pause transmission error:', error);
+      setPathSendError(error.message);
+    }
+  };
+
+  const resumePathTransmission = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/send-path/resume', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await response.json();
+      if (response.ok) {
+        applyJobStatusUpdate(data);
+      }
+    } catch (error) {
+      console.error('Resume transmission error:', error);
       setPathSendError(error.message);
     }
   };
@@ -587,7 +639,7 @@ const Whiteboard = () => {
           const response = await fetch('http://localhost:3001/api/send-path/status');
           if (response.ok) {
             const data = await response.json();
-            setPathJobStatus(data);
+            applyJobStatusUpdate(data);
           }
         } catch (error) {
           console.error('Status poll error:', error);
@@ -606,7 +658,7 @@ const Whiteboard = () => {
       clearInterval(statusPollRef.current);
       statusPollRef.current = null;
     }
-  }, [pathJobStatus?.status]);
+  }, [pathJobStatus?.status, applyJobStatusUpdate]);
 
   useEffect(() => () => {
     if (statusPollRef.current) {
@@ -1315,6 +1367,37 @@ const Whiteboard = () => {
                         )}
                       </motion.button>
                       {(pathJobStatus?.status === 'pending' || pathJobStatus?.status === 'running') && (
+                        pathJobStatus?.paused ? (
+                          <motion.button
+                            onClick={resumePathTransmission}
+                            disabled={isSendingPath}
+                            className={getThemeClasses(
+                              'px-4 py-2 text-sm font-medium rounded-lg border flex items-center gap-2',
+                              { light: 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100', dark: 'bg-green-900 border-green-700 text-green-300 hover:bg-green-800' },
+                              darkMode
+                            )}
+                            {...theme.animations.hover}
+                          >
+                            <Play className="w-4 h-4" />
+                            Resume
+                          </motion.button>
+                        ) : (
+                          <motion.button
+                            onClick={pausePathTransmission}
+                            disabled={isSendingPath}
+                            className={getThemeClasses(
+                              'px-4 py-2 text-sm font-medium rounded-lg border flex items-center gap-2',
+                              { light: 'bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100', dark: 'bg-yellow-900 border-yellow-700 text-yellow-200 hover:bg-yellow-800' },
+                              darkMode
+                            )}
+                            {...theme.animations.hover}
+                          >
+                            <Pause className="w-4 h-4" />
+                            Pause
+                          </motion.button>
+                        )
+                      )}
+                      {(pathJobStatus?.status === 'pending' || pathJobStatus?.status === 'running') && (
                         <motion.button
                           onClick={cancelPathTransmission}
                           className={getThemeClasses(
@@ -1342,7 +1425,7 @@ const Whiteboard = () => {
                     )}>
                       <div className="flex flex-col gap-2">
                         <div className="flex justify-between">
-                          <span className="font-medium">Status: {pathJobStatus.status || 'unknown'}</span>
+                          <span className="font-medium">Status: {pathJobStatus.status || 'unknown'}{pathJobStatus.paused ? ' (paused)' : ''}</span>
                           {pathJobStatus.jobId && (
                             <span className="opacity-60">Job ID: {pathJobStatus.jobId}</span>
                           )}
@@ -1362,6 +1445,9 @@ const Whiteboard = () => {
                           </>
                         ) : (
                           <p className="text-xs opacity-75">Awaiting transmission data...</p>
+                        )}
+                        {pathJobStatus.paused && (
+                          <p className="text-xs text-yellow-500 dark:text-yellow-300">Transmission is paused. Resume to continue sending remaining batches.</p>
                         )}
                         {pathJobStatus.error && (
                           <p className="text-xs text-red-500">Error: {pathJobStatus.error}</p>

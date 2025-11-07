@@ -1,6 +1,7 @@
-curl.exe -X POST http://192.168.50.5/api/path `
-  -H "Content-Type: application/json" `
-  -d '{
+$url = "http://192.168.50.5/api/path"
+
+$body = @'
+{
   "reset": true,
   "speed": 1800,
   "startPosition": { "x": 220, "y": 180 },
@@ -19,4 +20,7 @@ curl.exe -X POST http://192.168.50.5/api/path `
     { "x": 560, "y": 220, "penDown": true },
     { "x": 560, "y": 220, "penDown": false }
   ]
-}'
+}
+'@
+
+Invoke-RestMethod -Uri $url -Method Post -ContentType 'application/json' -Body $body

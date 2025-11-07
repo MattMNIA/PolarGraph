@@ -2,29 +2,33 @@
 
 This module uses OpenCV (if available) to find contours and return ordered points scaled to the board size.
 """
-from typing import List, Tuple, Optional
+from typing import Any, List, Tuple, Optional
 from PIL import Image
-import math
 import numpy as np
 
 try:
-    import cv2
-    import numpy as np
-    from skimage.morphology import skeletonize
+    import cv2  # type: ignore[import-not-found]
 except ImportError:
     cv2 = None
 
 Point = Tuple[float, float]
 
 def smooth_path(path, radius=3):
-    # rolling average smoothing
-    smoothed = []
-    for i in range(len(path)):
-        neighbors = path[max(0, i - radius):min(len(path), i + radius)]
-        avg_x = int(np.mean([p[0] for p in neighbors]))
-        avg_y = int(np.mean([p[1] for p in neighbors]))
-        smoothed.append((avg_x, avg_y))
-    return smoothed
+    """Fast rolling average smoothing for contour paths."""
+    if radius <= 0 or len(path) < 3:
+        return list(path)
+
+    window = radius * 2 + 1
+    pts = np.asarray(path, dtype=np.float32)
+    # Pad with edge values so the smoothing window is well-defined at ends
+    pad_front = np.repeat(pts[:1], radius, axis=0)
+    pad_back = np.repeat(pts[-1:], radius, axis=0)
+    padded = np.vstack((pad_front, pts, pad_back))
+    # Sliding window sum via cumulative sum
+    cumsum = np.cumsum(padded, axis=0)
+    cumsum = np.vstack((np.zeros((1, padded.shape[1]), dtype=np.float32), cumsum))
+    smoothed = (cumsum[window:] - cumsum[:-window]) / window
+    return [tuple(map(int, pt)) for pt in smoothed]
 
 
 def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
@@ -63,13 +67,11 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
     blurred = cv2.GaussianBlur(arr, (5, 5), 0)
     # Detect edges using Canny with fixed thresholds
     # Calculate median and sigma-based thresholds for Canny
-    v = np.median(blurred)
+    v = float(np.median(blurred.astype(np.float32)))
     sigma = 0.2
     lower = int(max(0, (1.0 - sigma) * v))
     upper = int(min(255, (1.0 + sigma) * v))
     edges = cv2.Canny(blurred, lower, upper)
-    # Save the processed image
-    cv2.imwrite("polargraph_ready.png", edges)
     # Find contours
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
     # Filter out small contours
@@ -107,6 +109,8 @@ def rotate_point(x, y, angle_deg, center):
 
 
 def generate_hatch_lines(gray, spacing=4, angle=0, brightness_threshold=180, adaptive=True):
+    if cv2 is None:
+        raise ImportError("OpenCV is required for hatch line generation. Install via `pip install opencv-python numpy`.")
     """
     Generate line paths based on image brightness.
     - spacing: pixels between lines (fixed spacing when adaptive=False, min spacing when adaptive=True)
@@ -206,53 +210,37 @@ def generate_hatch_lines(gray, spacing=4, angle=0, brightness_threshold=180, ada
             return paths
 
     # Adaptive spacing implementation using gamma-based algorithm
-    # Create binary image using gamma-corrected spacing
-    binary_img = np.zeros_like(gray, dtype=np.uint8)
-    
-    # Gamma parameter for spacing curve (adjustable)
+    # Vectorized implementation avoids per-pixel Python loops
     gamma = 2.2
-    
-    # For each pixel, determine if it should be drawn based on adaptive spacing
-    for y in range(h):
-        for x in range(w):
-            brightness = gray[y, x]
-            if brightness < brightness_threshold:
-                # Normalize brightness to 0-1 range
-                normalized_brightness = brightness / 255.0
-                
-                # Apply gamma correction to create spacing curve
-                # Darker areas (lower brightness) get smaller spacing (denser hatching)
-                spacing_factor = normalized_brightness ** (1.0 / gamma)
-                
-                # Calculate adaptive spacing: darker = smaller spacing
-                # spacing is minimum spacing, max_spacing is spacing * 4
-                max_spacing = spacing * 4
-                adaptive_spacing = spacing + (max_spacing - spacing) * spacing_factor
-                
-                # Determine if this pixel should be drawn based on position within spacing
-                # Use a simple modulo approach for line patterns
-                if angle == 0:  # horizontal
-                    line_position = y % adaptive_spacing
-                elif angle == 90:  # vertical
-                    line_position = x % adaptive_spacing
-                elif angle == 45:  # 45 degree
-                    line_position = (x + y) % adaptive_spacing
-                elif angle == 135:  # 135 degree
-                    line_position = (x - y) % adaptive_spacing
-                else:
-                    # For other angles, use rotated coordinates
-                    if angle != 0:
-                        rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
-                        rotated_point = cv2.transform(np.array([[x, y]], dtype=np.float32), rot_mat)[0]
-                        rx, ry = rotated_point
-                        line_position = ry % adaptive_spacing
-                    else:
-                        line_position = y % adaptive_spacing
-                
-                # Draw pixel if it's within the line width (simulate line thickness)
-                line_width = max(1, adaptive_spacing // 8)  # Adaptive line width
-                if line_position < line_width:
-                    binary_img[y, x] = 255
+    yy, xx = np.indices(gray.shape, dtype=np.float32)
+    normalized = gray.astype(np.float32) / 255.0
+    spacing_factor = np.power(normalized, 1.0 / gamma)
+    max_spacing = float(spacing * 4)
+    adaptive_spacing = spacing + (max_spacing - spacing) * spacing_factor
+    adaptive_spacing = np.maximum(1.0, adaptive_spacing)
+    line_width = np.maximum(1.0, adaptive_spacing / 8.0)
+
+    if angle == 0:
+        line_coord = yy
+    elif angle == 90:
+        line_coord = xx
+    elif angle == 45:
+        line_coord = xx + yy
+    elif angle == 135:
+        line_coord = xx - yy
+    else:
+        rad = np.deg2rad(angle)
+        cos_a = np.cos(rad)
+        sin_a = np.sin(rad)
+        cx, cy = center
+        x_shift = xx - cx
+        y_shift = yy - cy
+        line_coord = x_shift * sin_a + y_shift * cos_a
+
+    line_position = np.mod(line_coord, adaptive_spacing)
+    dark_mask = gray < brightness_threshold
+    line_mask = line_position <= line_width
+    binary_img = np.where(dark_mask & line_mask, 255, 0).astype(np.uint8)
     
     # Extract contours from the binary image
     contours, _ = cv2.findContours(binary_img, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)

@@ -32,6 +32,11 @@ class PathSendJob:
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
     _cancel_event: threading.Event = field(default_factory=threading.Event, repr=False)
+    paused: bool = False
+    _pause_event: threading.Event = field(default_factory=threading.Event, repr=False)
+
+    def __post_init__(self) -> None:
+        self._pause_event.set()
 
     def batches(self) -> Iterator[List[dict]]:
         """Yield successive point batches."""
@@ -46,22 +51,40 @@ class PathSendJob:
     def mark_complete(self) -> None:
         self.status = "completed"
         self.finished_at = time.time()
+        self.resume()
 
     def mark_cancelled(self) -> None:
         self.status = "cancelled"
         self.finished_at = time.time()
+        self.resume()
 
     def mark_failed(self, error: str) -> None:
         self.status = "failed"
         self.error = error
         self.finished_at = time.time()
+        self.resume()
 
     def request_cancel(self) -> None:
         self._cancel_event.set()
+        self._pause_event.set()
 
     @property
     def cancelled(self) -> bool:
         return self._cancel_event.is_set()
+
+    def pause(self) -> None:
+        self.paused = True
+        self._pause_event.clear()
+
+    def resume(self) -> None:
+        self.paused = False
+        self._pause_event.set()
+
+    def wait_if_paused(self) -> bool:
+        while not self._pause_event.wait(timeout=0.1):
+            if self.cancelled:
+                return False
+        return True
 
 
 class PathSenderBusyError(RuntimeError):
@@ -134,6 +157,20 @@ class PathSender:
                 job.request_cancel()
             return job
 
+    def pause_current(self) -> Optional[PathSendJob]:
+        with self._lock:
+            job = self._job
+            if job and job.status in {"pending", "running"}:
+                job.pause()
+            return job
+
+    def resume_current(self) -> Optional[PathSendJob]:
+        with self._lock:
+            job = self._job
+            if job and job.status in {"pending", "running"}:
+                job.resume()
+            return job
+
     def status(self) -> Optional[dict]:
         with self._lock:
             job = self._job if self._job and self._job.status in {"pending", "running"} else None
@@ -150,6 +187,7 @@ class PathSender:
                 "startedAt": reference.started_at,
                 "finishedAt": reference.finished_at,
                 "error": reference.error,
+                "paused": reference.paused,
             }
 
     def _run_job(self, job: PathSendJob) -> None:
@@ -158,6 +196,10 @@ class PathSender:
             batch_iter = job.batches()
             for batch_index, batch_points in enumerate(batch_iter):
                 if job.cancelled:
+                    job.mark_cancelled()
+                    return
+
+                if not job.wait_if_paused():
                     job.mark_cancelled()
                     return
 
@@ -235,6 +277,8 @@ class PathSender:
                 raise RuntimeError("Job cancelled during controller retry")
 
             attempt += 1
+            if not job.wait_if_paused():
+                raise RuntimeError("Job cancelled during controller retry")
             try:
                 response = self._session.post(url, json=payload, timeout=self.timeout)
                 response.raise_for_status()

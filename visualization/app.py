@@ -442,6 +442,7 @@ def visualize():
                                 'status': job.status,
                                 'totalPoints': len(path_points),
                                 'batchSize': job.batch_size,
+                                'paused': job.paused,
                             }
                         except PathSenderBusyError:
                             return jsonify({'error': 'A path transmission is already in progress'}), 409
@@ -785,6 +786,7 @@ def queue_path_transmission():
             'status': job.status,
             'totalPoints': len(points),
             'batchSize': job.batch_size,
+            'paused': job.paused,
         }), 200
 
     except Exception as exc:
@@ -808,7 +810,25 @@ def cancel_path_transmission():
     job = path_sender.cancel_current()
     if not job:
         return jsonify({'status': 'idle'}), 200
-    return jsonify({'status': job.status, 'jobId': job.job_id}), 202
+    return jsonify({'status': job.status, 'jobId': job.job_id, 'paused': job.paused}), 202
+
+
+@app.route('/api/send-path/pause', methods=['POST'])
+def pause_path_transmission():
+    """Pause sending new batches for the active job."""
+    job = path_sender.pause_current()
+    if not job:
+        return jsonify({'status': 'idle'}), 200
+    return jsonify({'status': job.status, 'jobId': job.job_id, 'paused': job.paused}), 200
+
+
+@app.route('/api/send-path/resume', methods=['POST'])
+def resume_path_transmission():
+    """Resume batch sending if the current job is paused."""
+    job = path_sender.resume_current()
+    if not job:
+        return jsonify({'status': 'idle'}), 200
+    return jsonify({'status': job.status, 'jobId': job.job_id, 'paused': job.paused}), 200
 
 if __name__ == '__main__':
     # Try to import required modules

@@ -5,6 +5,20 @@ import { useTheme } from './ThemeProvider';
 import { theme, getThemeClasses } from '../theme';
 import { Play, Pause, Download, Upload, Type, Palette, Settings, Eye, EyeOff, ChevronUp, Trash2, Sun, Moon } from 'lucide-react';
 
+const CANVAS_WIDTH = 1150;
+const CANVAS_HEIGHT = 730;
+const MIN_ELEMENT_WIDTH = 1;
+const MIN_ELEMENT_HEIGHT = 1;
+const RESIZE_MIN_WIDTH = 50;
+const RESIZE_MIN_HEIGHT = 30;
+const clamp = (value, min, max) => {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  const upperBound = max >= min ? max : min;
+  return Math.min(Math.max(value, min), upperBound);
+};
+
 // Navbar Component
 const Navbar = () => {
   const { darkMode, toggleTheme } = useTheme();
@@ -132,9 +146,9 @@ const Whiteboard = () => {
         // Create a temporary image to get dimensions
         const img = new Image();
         img.onload = () => {
-          // Canvas dimensions (fixed at 1150x730 to match backend)
-          const maxCanvasWidth = 1150;
-          const maxCanvasHeight = 730;
+          // Canvas dimensions (fixed at CANVAS_WIDTH x CANVAS_HEIGHT to match backend)
+          const maxCanvasWidth = CANVAS_WIDTH;
+          const maxCanvasHeight = CANVAS_HEIGHT;
 
           // Calculate scale to fit image within 70% of canvas size for easy manipulation
           const maxWidth = maxCanvasWidth * 0.7;
@@ -147,12 +161,18 @@ const Whiteboard = () => {
           const scaledWidth = Math.round(img.width * scale);
           const scaledHeight = Math.round(img.height * scale);
 
+          const margin = 50;
+          const maxX = Math.max(0, maxCanvasWidth - scaledWidth);
+          const maxY = Math.max(0, maxCanvasHeight - scaledHeight);
+          const randomX = margin + Math.random() * Math.max(0, maxX - margin * 2);
+          const randomY = margin + Math.random() * Math.max(0, maxY - margin * 2);
+
           const newElement = {
             id: Date.now(),
             type: 'image',
             src: e.target.result,
-            x: Math.random() * (maxCanvasWidth - scaledWidth - 100) + 50, // Random position with margin
-            y: Math.random() * (maxCanvasHeight - scaledHeight - 100) + 50,
+            x: clamp(randomX, 0, maxX),
+            y: clamp(randomY, 0, maxY),
             width: scaledWidth,
             height: scaledHeight,
             originalWidth: img.width,
@@ -173,6 +193,10 @@ const Whiteboard = () => {
 
   const addTextElement = () => {
     if (textInput.trim()) {
+      const width = clamp(Math.max(textInput.length * fontSize * 0.6, 150), MIN_ELEMENT_WIDTH, CANVAS_WIDTH);
+      const height = clamp(fontSize + 20, MIN_ELEMENT_HEIGHT, CANVAS_HEIGHT);
+      const maxX = Math.max(0, CANVAS_WIDTH - width);
+      const maxY = Math.max(0, CANVAS_HEIGHT - height);
       const newElement = {
         id: Date.now(),
         type: 'text',
@@ -183,10 +207,10 @@ const Whiteboard = () => {
         isItalic,
         color: selectedColor,
         textRenderingStyle,
-        x: Math.random() * 300 + 50,
-        y: Math.random() * 200 + 50,
-        width: Math.max(textInput.length * fontSize * 0.6, 150),
-        height: fontSize + 20,
+        x: clamp(Math.random() * 300 + 50, 0, maxX),
+        y: clamp(Math.random() * 200 + 50, 0, maxY),
+        width,
+        height,
       };
       setElements(prev => [...prev, newElement]);
       setTextInput('');
@@ -194,7 +218,22 @@ const Whiteboard = () => {
   };
 
   const updateElement = useCallback((id, updates) => {
-    setElements(prev => prev.map(el => el.id === id ? { ...el, ...updates } : el));
+    setElements((prev) => prev.map((el) => {
+      if (el.id !== id) {
+        return el;
+      }
+
+      const next = { ...el, ...updates };
+      next.width = clamp(next.width, MIN_ELEMENT_WIDTH, CANVAS_WIDTH);
+      next.height = clamp(next.height, MIN_ELEMENT_HEIGHT, CANVAS_HEIGHT);
+
+      const maxX = CANVAS_WIDTH - next.width;
+      const maxY = CANVAS_HEIGHT - next.height;
+      next.x = clamp(next.x, 0, maxX);
+      next.y = clamp(next.y, 0, maxY);
+
+      return next;
+    }));
   }, []);
 
   const deleteElement = (id) => {
@@ -250,13 +289,14 @@ const Whiteboard = () => {
 
   const handleMouseDown = (e, element) => {
     if (e.target.closest('.delete-btn') || e.target.closest('.resize-handle')) return;
+    e.preventDefault();
     if (!canvasRef.current) return; // Guard against null ref
     setDragging(element.id);
     const rect = canvasRef.current.getBoundingClientRect();
     const canvasWidth = rect.width;
     const canvasHeight = rect.height;
-    const scaleX = canvasWidth / 1150; // Display width / original canvas width
-    const scaleY = canvasHeight / 730; // Display height / original canvas height
+    const scaleX = canvasWidth / CANVAS_WIDTH; // Display width / original canvas width
+    const scaleY = canvasHeight / CANVAS_HEIGHT; // Display height / original canvas height
     
     setDragOffset({
       x: e.clientX - rect.left - (element.x * scaleX),
@@ -266,6 +306,7 @@ const Whiteboard = () => {
 
   const handleResizeMouseDown = (e, element) => {
     e.stopPropagation();
+    e.preventDefault();
     setResizing(element.id);
     setResizeStart({
       x: e.clientX,
@@ -279,45 +320,59 @@ const Whiteboard = () => {
   };
 
   const handleMouseMove = useCallback((e) => {
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
     if (dragging) {
-      if (!canvasRef.current) return; // Guard against null ref
-      const rect = canvasRef.current.getBoundingClientRect();
-      const canvasWidth = rect.width;
-      const canvasHeight = rect.height;
-      const scaleX = 1150 / canvasWidth; // Original canvas width / current display width
-      const scaleY = 730 / canvasHeight; // Original canvas height / current display height
-      
+      const scaleX = CANVAS_WIDTH / rect.width;
+      const scaleY = CANVAS_HEIGHT / rect.height;
+
       const mouseX = (e.clientX - rect.left - dragOffset.x) * scaleX;
       const mouseY = (e.clientY - rect.top - dragOffset.y) * scaleY;
-      
-      // Get the dragging element to calculate bounds
-      const element = elements.find(el => el.id === dragging);
+
+      const element = elements.find((el) => el.id === dragging);
       if (element) {
-        const maxX = 1150 - element.width;  // Canvas width minus element width
-        const maxY = 730 - element.height; // Canvas height minus element height
-        updateElement(dragging, { 
-          x: Math.max(0, Math.min(maxX, mouseX)), 
-          y: Math.max(0, Math.min(maxY, mouseY)) 
+        const maxX = CANVAS_WIDTH - element.width;
+        const maxY = CANVAS_HEIGHT - element.height;
+        updateElement(dragging, {
+          x: Math.max(0, Math.min(maxX, mouseX)),
+          y: Math.max(0, Math.min(maxY, mouseY)),
         });
       }
     } else if (resizing) {
-      const deltaX = e.clientX - resizeStart.x;
-      const deltaY = e.clientY - resizeStart.y;
+      const element = elements.find((el) => el.id === resizing);
+      if (!element) return;
+
+      const scaleX = CANVAS_WIDTH / rect.width;
+      const scaleY = CANVAS_HEIGHT / rect.height;
+      const deltaX = (e.clientX - resizeStart.x) * scaleX;
+      const deltaY = (e.clientY - resizeStart.y) * scaleY;
+
+      const maxWidth = CANVAS_WIDTH - element.x;
+      const maxHeight = CANVAS_HEIGHT - element.y;
 
       if (uniformScaling) {
-        // Maintain aspect ratio
-        const aspectRatio = resizeStart.aspectRatio;
-        const newWidth = Math.max(50, resizeStart.width + deltaX);
-        const newHeight = newWidth / aspectRatio;
+        const aspectRatio = resizeStart.aspectRatio || 1;
+        let newWidth = Math.max(RESIZE_MIN_WIDTH, resizeStart.width + deltaX);
+        let newHeight = newWidth / aspectRatio;
+
+        if (newWidth > maxWidth || newHeight > maxHeight) {
+          const widthScale = maxWidth / newWidth;
+          const heightScale = maxHeight / newHeight;
+          const scale = Math.min(widthScale, heightScale, 1);
+          newWidth = Math.max(RESIZE_MIN_WIDTH, newWidth * scale);
+          newHeight = Math.max(RESIZE_MIN_HEIGHT, newHeight * scale);
+        }
+
         updateElement(resizing, { width: newWidth, height: newHeight });
       } else {
-        // Free resize
-        const newWidth = Math.max(50, resizeStart.width + deltaX);
-        const newHeight = Math.max(30, resizeStart.height + deltaY);
+        const newWidth = Math.min(maxWidth, Math.max(RESIZE_MIN_WIDTH, resizeStart.width + deltaX));
+        const newHeight = Math.min(maxHeight, Math.max(RESIZE_MIN_HEIGHT, resizeStart.height + deltaY));
         updateElement(resizing, { width: newWidth, height: newHeight });
       }
     }
-  }, [dragging, dragOffset, resizing, resizeStart, updateElement, uniformScaling, elements]);
+  }, [dragging, dragOffset, elements, resizing, resizeStart, uniformScaling, updateElement]);
 
   const handleMouseUp = useCallback(() => {
     setDragging(null);
@@ -397,8 +452,8 @@ const Whiteboard = () => {
       images: imagePaths,
       positions,
       textElements: textData,
-      boardWidth: 1150,
-      boardHeight: 730,
+      boardWidth: CANVAS_WIDTH,
+      boardHeight: CANVAS_HEIGHT,
       method: drawingMethod,
       spacing: hatchSpacing,
       adaptive: adaptiveHatching,
@@ -1026,8 +1081,8 @@ const Whiteboard = () => {
                   )}
                   style={{
                     width: '100%',
-                    maxWidth: '1150px',
-                    aspectRatio: '1150/730',
+                    maxWidth: `${CANVAS_WIDTH}px`,
+                    aspectRatio: `${CANVAS_WIDTH}/${CANVAS_HEIGHT}`,
                     cursor: dragging ? 'grabbing' : resizing ? 'se-resize' : 'default',
                     minHeight: '400px'
                   }}
@@ -1075,7 +1130,7 @@ const Whiteboard = () => {
                       animate={{ scale: 1, opacity: 1 }}
                       exit={{ scale: 0, opacity: 0 }}
                       transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                      className="absolute group"
+                      className="absolute group select-none"
                       style={{
                         left: element.x,
                         top: element.y,

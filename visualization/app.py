@@ -9,8 +9,13 @@ import base64
 import tempfile
 import subprocess
 from pathlib import Path
+from typing import Optional
+from urllib.parse import urlparse, urlunparse
 from flask import Flask, request, jsonify
-from flask_cors import CORS
+try:
+    from flask_cors import CORS  # type: ignore[import]
+except ImportError:  # pragma: no cover - optional dependency during static analysis
+    CORS = None  # type: ignore
 import traceback
 import cv2
 import numpy as np
@@ -26,8 +31,132 @@ except ImportError:
 # Add the current directory to Python path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
+from polargraph.path_sender import PathSender, PathSenderBusyError  # noqa: E402
+
 app = Flask(__name__)
-CORS(app)  # Enable CORS for all routes
+if CORS:
+    CORS(app)  # Enable CORS for all routes
+
+path_sender = PathSender(batch_size=100)
+
+
+def _normalize_transmission_points(raw_points):
+    if not isinstance(raw_points, (list, tuple)):
+        raise ValueError('path must be a list of points')
+
+    normalized = []
+    for entry in raw_points:
+        if isinstance(entry, dict):
+            if 'x' not in entry or 'y' not in entry:
+                raise ValueError("point objects must include 'x' and 'y'")
+            x = float(entry['x'])
+            y = float(entry['y'])
+            pen_down = bool(entry.get('penDown', entry.get('pen_down', entry.get('pen'))))
+        elif isinstance(entry, (list, tuple)):
+            if len(entry) < 2:
+                raise ValueError('point arrays must include at least x and y values')
+            x = float(entry[0])
+            y = float(entry[1])
+            pen_down = bool(entry[2]) if len(entry) > 2 else True
+        else:
+            raise ValueError('points must be objects or [x, y, penDown] arrays')
+
+        normalized.append({'x': x, 'y': y, 'penDown': pen_down})
+
+    return normalized
+
+
+def _derive_start_position(explicit_start, points):
+    if isinstance(explicit_start, dict) and 'x' in explicit_start and 'y' in explicit_start:
+        return {'x': float(explicit_start['x']), 'y': float(explicit_start['y'])}
+    if not points:
+        return None
+    first_point = points[0]
+    return {'x': first_point['x'], 'y': first_point['y']}
+
+
+def _derive_status_url(controller_url: Optional[str], explicit_status_url: Optional[str] = None) -> Optional[str]:
+    if explicit_status_url:
+        return explicit_status_url.rstrip('/')
+    if not controller_url:
+        return None
+
+    if not isinstance(controller_url, str):
+        controller_url = str(controller_url)
+
+    controller_url = controller_url.strip()
+    parsed = urlparse(controller_url)
+    path = (parsed.path or '').rstrip('/')
+
+    if not path:
+        status_path = '/api/status'
+    elif path.endswith('/status'):
+        status_path = path
+    elif path.endswith('/path'):
+        base_path = path[: -len('/path')]
+        if not base_path:
+            base_path = '/api'
+        status_path = f"{base_path}/status"
+    else:
+        status_path = f"{path}/status"
+
+    cleaned = parsed._replace(path=status_path, params='', query='', fragment='')
+    return urlunparse(cleaned)
+
+
+def _derive_path_url(controller_url: Optional[str], explicit_path_url: Optional[str] = None) -> Optional[str]:
+    if explicit_path_url:
+        return explicit_path_url.rstrip('/')
+    if not controller_url:
+        return None
+
+    if not isinstance(controller_url, str):
+        controller_url = str(controller_url)
+
+    controller_url = controller_url.strip()
+    if not controller_url:
+        return None
+
+    parsed = urlparse(controller_url)
+    path = (parsed.path or '').rstrip('/')
+
+    if not path:
+        path_path = '/api/path'
+    elif path.endswith('/path'):
+        path_path = path
+    elif path.endswith('/api'):
+        path_path = f"{path}/path"
+    else:
+        path_path = f"{path}/path"
+
+    cleaned = parsed._replace(path=path_path, params='', query='', fragment='')
+    return urlunparse(cleaned)
+
+
+def _flatten_path_for_transmission(path_points):
+    flattened = []
+    for entry in path_points:
+        if isinstance(entry, (list, tuple)) and len(entry) >= 2:
+            x, y = entry[0], entry[1]
+            pen_down = bool(entry[2]) if len(entry) > 2 else True
+        elif isinstance(entry, dict):
+            x = entry.get('x')
+            y = entry.get('y')
+            if x is None or y is None:
+                continue
+            pen_down = entry.get('penDown', True)
+        else:
+            continue
+        flattened.append({'x': float(x), 'y': float(y), 'penDown': bool(pen_down)})
+    return flattened
+
+
+def _as_bool(value):
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {'1', 'true', 'yes', 'on'}
+    return bool(value)
 
 @app.route('/api/visualize', methods=['POST'])
 def visualize():
@@ -46,6 +175,19 @@ def visualize():
         method = data.get('method', 'contour')
         spacing = data.get('spacing', 4)
         adaptive = data.get('adaptive', True)
+        send_to_controller = _as_bool(data.get('sendToController', False))
+        include_path_points = _as_bool(data.get('includePathPoints', False))
+        controller_url = data.get('controllerUrl') or data.get('controllerURL') or data.get('controller')
+        if isinstance(controller_url, str):
+            controller_url = controller_url.strip()
+        controller_path_override = data.get('controllerPathUrl') or data.get('controllerPathURL')
+        if isinstance(controller_path_override, str):
+            controller_path_override = controller_path_override.strip()
+        else:
+            controller_path_override = None
+        controller_speed_value = data.get('controllerSpeed', data.get('controller_speed', 1800))
+        controller_reset = _as_bool(data.get('controllerReset', True))
+        controller_start = data.get('controllerStartPosition') or data.get('startPosition')
 
         if not images and not text_elements:
             return jsonify({'error': 'No images or text elements provided'}), 400
@@ -213,10 +355,13 @@ def visualize():
                 # Initialize preview variables
                 path_preview = None
                 preview_image = None
+                path_points = []
+                job_info = None
 
                 # Combine all paths from all images
                 if all_image_paths:
                     combined_path = combine_image_paths(all_image_paths)
+                    path_points = _flatten_path_for_transmission(combined_path)
 
                     # Draw only the pen-down paths (exclude travel paths)
                     for point in combined_path:
@@ -265,6 +410,42 @@ def visualize():
                         print(f"Combined preview creation failed: {preview_error}")
                         preview_image = None
 
+                    if send_to_controller:
+                        controller_path_url = _derive_path_url(controller_url, controller_path_override)
+                        if not controller_path_url:
+                            return jsonify({'error': 'controllerUrl must resolve to a valid /api/path endpoint when sendToController is true'}), 400
+                        if not path_points:
+                            return jsonify({'error': 'No path points available to send'}), 400
+                        try:
+                            controller_speed = int(controller_speed_value)
+                        except (TypeError, ValueError):
+                            return jsonify({'error': 'controllerSpeed must be an integer'}), 400
+
+                        start_position_payload = _derive_start_position(controller_start, path_points)
+                        status_override = data.get('controllerStatusUrl') or data.get('controllerStatusURL')
+                        if isinstance(status_override, str):
+                            status_override = status_override.strip()
+                        else:
+                            status_override = None
+                        status_url = _derive_status_url(controller_url, status_override)
+                        try:
+                            job = path_sender.start_job(
+                                controller_url=controller_path_url,
+                                points=path_points,
+                                start_position=start_position_payload,
+                                speed=controller_speed,
+                                reset=controller_reset,
+                                status_url=status_url,
+                            )
+                            job_info = {
+                                'jobId': job.job_id,
+                                'status': job.status,
+                                'totalPoints': len(path_points),
+                                'batchSize': job.batch_size,
+                            }
+                        except PathSenderBusyError:
+                            return jsonify({'error': 'A path transmission is already in progress'}), 409
+
                 # Save the path visualization (separate from combined preview)
                 if all_image_paths:
                     path_viz_path = os.path.join(os.path.dirname(__file__), 'path_visualization.png')
@@ -275,7 +456,7 @@ def visualize():
                         path_image_data = f.read()
                         path_preview = f"data:image/png;base64,{base64.b64encode(path_image_data).decode()}"
 
-                return jsonify({
+                response_payload = {
                     'success': True,
                     'boardWidth': board_width,
                     'boardHeight': board_height,
@@ -286,11 +467,16 @@ def visualize():
                     'animationUrl': '/api/animation',  # Placeholder
                     'downloadUrl': '/api/download',  # Placeholder
                     'output': f"Processed {len(images)} images using {method} method with spacing {spacing}"
-                })
+                }
+                if include_path_points:
+                    response_payload['pathPoints'] = path_points
+                if job_info:
+                    response_payload['pathJob'] = job_info
+
+                return jsonify(response_payload)
 
             except Exception as e:
                 print(f"Processing failed: {e}")
-                import traceback
                 traceback.print_exc()
                 return jsonify({
                     'error': 'Path processing failed',
@@ -531,7 +717,6 @@ def create_animation():
 
             except Exception as e:
                 print(f"Animation creation failed: {e}")
-                import traceback
                 traceback.print_exc()
                 return jsonify({'error': 'Animation creation failed', 'details': str(e)}), 500
 
@@ -539,6 +724,91 @@ def create_animation():
         print(f"Animation endpoint error: {e}")
         traceback.print_exc()
         return jsonify({'error': 'Internal server error', 'details': str(e)}), 500
+
+
+@app.route('/api/send-path', methods=['POST'])
+def queue_path_transmission():
+    """Queue a path transmission job to the microcontroller."""
+    try:
+        data = request.get_json(force=True, silent=True)
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+
+        controller_url = data.get('controllerUrl') or data.get('controllerURL') or data.get('controller')
+        if isinstance(controller_url, str):
+            controller_url = controller_url.strip()
+        controller_path_override = data.get('controllerPathUrl') or data.get('controllerPathURL')
+        if isinstance(controller_path_override, str):
+            controller_path_override = controller_path_override.strip()
+        else:
+            controller_path_override = None
+        raw_points = data.get('path') or data.get('points') or data.get('pathPoints')
+        if not controller_url:
+            return jsonify({'error': 'controllerUrl is required'}), 400
+        if not raw_points:
+            return jsonify({'error': 'path points are required'}), 400
+
+        try:
+            points = _normalize_transmission_points(raw_points)
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+
+        start_position = _derive_start_position(data.get('startPosition'), points)
+        speed = int(data.get('speed', 1800))
+        reset = bool(data.get('reset', True))
+        status_override = data.get('controllerStatusUrl') or data.get('controllerStatusURL')
+        if isinstance(status_override, str):
+            status_override = status_override.strip()
+        else:
+            status_override = None
+        status_url = _derive_status_url(controller_url, status_override)
+
+        controller_path_url = _derive_path_url(controller_url, controller_path_override)
+        if not controller_path_url:
+            return jsonify({'error': 'controllerUrl must resolve to a valid /api/path endpoint'}), 400
+
+        try:
+            job = path_sender.start_job(
+                controller_url=controller_path_url,
+                points=points,
+                start_position=start_position,
+                speed=speed,
+                reset=reset,
+                status_url=status_url,
+            )
+        except PathSenderBusyError:
+            return jsonify({'error': 'A path transmission is already in progress'}), 409
+
+        return jsonify({
+            'success': True,
+            'jobId': job.job_id,
+            'status': job.status,
+            'totalPoints': len(points),
+            'batchSize': job.batch_size,
+        }), 200
+
+    except Exception as exc:
+        print(f"Failed to queue path transmission: {exc}")
+        traceback.print_exc()
+        return jsonify({'error': 'Failed to queue path transmission', 'details': str(exc)}), 500
+
+
+@app.route('/api/send-path/status', methods=['GET'])
+def path_transmission_status():
+    """Return status for the current or most recent path transmission job."""
+    status = path_sender.status()
+    if status is None:
+        return jsonify({'status': 'idle'}), 200
+    return jsonify(status), 200
+
+
+@app.route('/api/send-path/cancel', methods=['POST'])
+def cancel_path_transmission():
+    """Attempt to cancel the current transmission job."""
+    job = path_sender.cancel_current()
+    if not job:
+        return jsonify({'status': 'idle'}), 200
+    return jsonify({'status': job.status, 'jobId': job.job_id}), 202
 
 if __name__ == '__main__':
     # Try to import required modules

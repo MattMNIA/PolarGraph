@@ -221,6 +221,12 @@ const Whiteboard = () => {
   const [animationResult, setAnimationResult] = useState(null);
   const [isCreatingAnimation, setIsCreatingAnimation] = useState(false);
   const [animationController, setAnimationController] = useState(null);
+  const [controllerUrl, setControllerUrl] = useState('http://192.168.50.5');
+  const [controllerSpeed, setControllerSpeed] = useState(1800);
+  const [isSendingPath, setIsSendingPath] = useState(false);
+  const [pathJobStatus, setPathJobStatus] = useState(null);
+  const [pathSendError, setPathSendError] = useState(null);
+  const statusPollRef = useRef(null);
 
   const handleMouseDown = (e, element) => {
     if (e.target.closest('.delete-btn') || e.target.closest('.resize-handle')) return;
@@ -329,9 +335,66 @@ const Whiteboard = () => {
     return () => document.removeEventListener('paste', handlePaste);
   }, []);
 
+  const buildVisualizationPayload = useCallback((overrides = {}) => {
+    const imageElements = elements.filter(el => el.type === 'image');
+    const textElements = elements.filter(el => el.type === 'text');
+
+    if (imageElements.length === 0 && textElements.length === 0) {
+      return null;
+    }
+
+    const positions = [];
+    const imagePaths = [];
+    const textData = [];
+
+    imageElements.forEach(element => {
+      const x = Math.round(element.x);
+      const y = Math.round(element.y);
+      const width = Math.round(element.width);
+      const height = Math.round(element.height);
+
+      positions.push(x, y, width, height);
+      imagePaths.push(element.src);
+    });
+
+    textElements.forEach(element => {
+      textData.push({
+        text: element.text,
+        x: Math.round(element.x),
+        y: Math.round(element.y),
+        width: Math.round(element.width),
+        height: Math.round(element.height),
+        fontSize: element.fontSize,
+        fontFamily: element.fontFamily,
+        isBold: element.isBold,
+        isItalic: element.isItalic,
+        color: element.color,
+        textRenderingStyle: element.textRenderingStyle,
+      });
+    });
+
+    return {
+      images: imagePaths,
+      positions,
+      textElements: textData,
+      boardWidth: 1150,
+      boardHeight: 730,
+      method: drawingMethod,
+      spacing: hatchSpacing,
+      adaptive: adaptiveHatching,
+      ...overrides,
+    };
+  }, [elements, drawingMethod, hatchSpacing, adaptiveHatching]);
+
   // Visualization function
   const runVisualization = async () => {
     if (elements.length === 0) {
+      alert('Please add some elements to the whiteboard first.');
+      return;
+    }
+
+    const payload = buildVisualizationPayload();
+    if (!payload) {
       alert('Please add some elements to the whiteboard first.');
       return;
     }
@@ -341,74 +404,25 @@ const Whiteboard = () => {
     setAnimationResult(null);
 
     try {
-      // Prepare image and text data for the Python script
-      const imageElements = elements.filter(el => el.type === 'image');
-      const textElements = elements.filter(el => el.type === 'text');
-      const canvasWidth = 1150; // Match the Python script default
-      const canvasHeight = 730;
-
-      if (imageElements.length === 0 && textElements.length === 0) {
-        alert('Please add some elements to the whiteboard first.');
-        setIsVisualizing(false);
-        return;
-      }
-
-      // Convert canvas coordinates to the visualization coordinate system
-      const positions = [];
-      const imagePaths = [];
-      const textData = [];
-
-      imageElements.forEach(element => {
-        // Convert from canvas coordinates to visualization coordinates (both use 1150x730)
-        const x = Math.round(element.x);
-        const y = Math.round(element.y);
-        const width = Math.round(element.width);
-        const height = Math.round(element.height);
-
-        positions.push(x, y, width, height);
-        imagePaths.push(element.src);
-      });
-
-      textElements.forEach(element => {
-        textData.push({
-          text: element.text,
-          x: Math.round(element.x),
-          y: Math.round(element.y),
-          width: Math.round(element.width),
-          height: Math.round(element.height),
-          fontSize: element.fontSize,
-          fontFamily: element.fontFamily,
-          isBold: element.isBold,
-          isItalic: element.isItalic,
-          color: element.color,
-          textRenderingStyle: element.textRenderingStyle,
-        });
-      });
-
-      // Call the Python visualization script
       const response = await fetch('http://localhost:3001/api/visualize', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          images: imagePaths,
-          positions: positions,
-          textElements: textData,
-          boardWidth: canvasWidth,
-          boardHeight: canvasHeight,
-          method: drawingMethod,
-          spacing: hatchSpacing,
-          adaptive: adaptiveHatching,
-        }),
+        body: JSON.stringify(payload),
       });
 
       if (!response.ok) {
         throw new Error(`Visualization failed: ${response.statusText}`);
       }
-
       const result = await response.json();
       setVisualizationResult(result);
+      if (result.pathJob) {
+        setPathJobStatus(result.pathJob);
+      } else {
+        setPathJobStatus(null);
+      }
+      setPathSendError(null);
 
       // Automatically create animation after visualization
       try {
@@ -437,58 +451,18 @@ const Whiteboard = () => {
     setAnimationController(controller);
 
     try {
-      // Use the same data as the visualization
-      const imageElements = elements.filter(el => el.type === 'image');
-      const textElements = elements.filter(el => el.type === 'text');
-      const canvasWidth = 1150;
-      const canvasHeight = 730;
+      const payload = buildVisualizationPayload();
+      if (!payload) {
+        alert('Please add some elements to the whiteboard first.');
+        return;
+      }
 
-      const positions = [];
-      const imagePaths = [];
-      const textData = [];
-
-      imageElements.forEach(element => {
-        const x = Math.round(element.x);
-        const y = Math.round(element.y);
-        const width = Math.round(element.width);
-        const height = Math.round(element.height);
-
-        positions.push(x, y, width, height);
-        imagePaths.push(element.src);
-      });
-
-      textElements.forEach(element => {
-        textData.push({
-          text: element.text,
-          x: Math.round(element.x),
-          y: Math.round(element.y),
-          width: Math.round(element.width),
-          height: Math.round(element.height),
-          fontSize: element.fontSize,
-          fontFamily: element.fontFamily,
-          isBold: element.isBold,
-          isItalic: element.isItalic,
-          color: element.color,
-          textRenderingStyle: element.textRenderingStyle,
-        });
-      });
-
-      // Call the animation endpoint
       const response = await fetch('http://localhost:3001/api/animation', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          images: imagePaths,
-          positions: positions,
-          textElements: textData,
-          boardWidth: canvasWidth,
-          boardHeight: canvasHeight,
-          method: drawingMethod,
-          spacing: hatchSpacing,
-          adaptive: adaptiveHatching,
-        }),
+        body: JSON.stringify(payload),
         signal: controller.signal,
       });
 
@@ -513,12 +487,133 @@ const Whiteboard = () => {
     }
   };
 
+  const sendPathToController = async () => {
+    if (isSendingPath) return;
+    if (!controllerUrl.trim()) {
+      alert('Enter the controller base URL first.');
+      return;
+    }
+
+    const trimmedUrl = controllerUrl.trim().replace(/\s+$/, '');
+    if (!trimmedUrl) {
+      alert('Enter the controller base URL first.');
+      return;
+    }
+
+    const normalizedUrl = trimmedUrl.replace(/\/+$/, '');
+    const statusUrl = (() => {
+      if (!normalizedUrl) {
+        return '';
+      }
+      if (/\/status$/i.test(normalizedUrl)) {
+        return normalizedUrl;
+      }
+      if (/\/path$/i.test(normalizedUrl)) {
+        return normalizedUrl.replace(/\/path$/i, '/status');
+      }
+      if (/\/api$/i.test(normalizedUrl)) {
+        return `${normalizedUrl}/status`;
+      }
+      return `${normalizedUrl}/api/status`;
+    })();
+
+    const payload = buildVisualizationPayload({
+      sendToController: true,
+      controllerUrl: trimmedUrl,
+      controllerSpeed: Number(controllerSpeed) || 0,
+      controllerReset: true,
+      controllerStatusUrl: statusUrl || undefined,
+    });
+
+    if (!payload) {
+      alert('Please add some elements to the whiteboard first.');
+      return;
+    }
+
+    setIsSendingPath(true);
+    setPathSendError(null);
+    try {
+      const response = await fetch('http://localhost:3001/api/visualize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to queue path transmission');
+      }
+      setVisualizationResult(data);
+      if (data.pathJob) {
+        setPathJobStatus(data.pathJob);
+      } else {
+        setPathJobStatus(null);
+      }
+    } catch (error) {
+      console.error('Path transmission error:', error);
+      setPathSendError(error.message);
+    } finally {
+      setIsSendingPath(false);
+    }
+  };
+
+  const cancelPathTransmission = async () => {
+    try {
+      const response = await fetch('http://localhost:3001/api/send-path/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setPathJobStatus(data);
+      }
+    } catch (error) {
+      console.error('Cancel transmission error:', error);
+      setPathSendError(error.message);
+    }
+  };
+
   // Cancel animation function
   const cancelAnimation = () => {
     if (animationController) {
       animationController.abort();
     }
   };
+
+  useEffect(() => {
+    const status = pathJobStatus?.status;
+    if (status === 'pending' || status === 'running') {
+      const interval = setInterval(async () => {
+        try {
+          const response = await fetch('http://localhost:3001/api/send-path/status');
+          if (response.ok) {
+            const data = await response.json();
+            setPathJobStatus(data);
+          }
+        } catch (error) {
+          console.error('Status poll error:', error);
+        }
+      }, 2000);
+      statusPollRef.current = interval;
+      return () => {
+        clearInterval(interval);
+        if (statusPollRef.current === interval) {
+          statusPollRef.current = null;
+        }
+      };
+    }
+
+    if (statusPollRef.current) {
+      clearInterval(statusPollRef.current);
+      statusPollRef.current = null;
+    }
+  }, [pathJobStatus?.status]);
+
+  useEffect(() => () => {
+    if (statusPollRef.current) {
+      clearInterval(statusPollRef.current);
+      statusPollRef.current = null;
+    }
+  }, []);
 
   return (
     <div className={getThemeClasses('min-h-screen transition-colors duration-300',
@@ -1158,6 +1253,124 @@ const Whiteboard = () => {
                     )}
                   </div>
                 </div>
+
+                <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-base font-semibold">Send to Microcontroller</h4>
+                      <p className="text-sm opacity-75">Queue the drawing on the ESP32 without blocking this page.</p>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-3">
+                    <input
+                      type="text"
+                      value={controllerUrl}
+                      onChange={(event) => setControllerUrl(event.target.value)}
+                      placeholder="http://192.168.x.x"
+                      className={getThemeClasses(
+                        'w-full px-3 py-2 border rounded-lg',
+                        { light: 'bg-white border-gray-300 focus:border-blue-500', dark: 'bg-gray-800 border-gray-600 focus:border-blue-400' },
+                        darkMode
+                      )}
+                    />
+                    <input
+                      type="number"
+                      value={controllerSpeed}
+                      min={200}
+                      onChange={(event) => setControllerSpeed(parseInt(event.target.value, 10) || 0)}
+                      placeholder="Speed (steps/sec)"
+                      className={getThemeClasses(
+                        'w-full px-3 py-2 border rounded-lg',
+                        { light: 'bg-white border-gray-300 focus:border-blue-500', dark: 'bg-gray-800 border-gray-600 focus:border-blue-400' },
+                        darkMode
+                      )}
+                    />
+                    <div className="flex flex-wrap items-center gap-3">
+                      <motion.button
+                        onClick={sendPathToController}
+                        disabled={
+                          isSendingPath ||
+                          elements.length === 0 ||
+                          pathJobStatus?.status === 'pending' ||
+                          pathJobStatus?.status === 'running'
+                        }
+                        className={getThemeClasses(
+                          theme.styles.button.primary.base + ' flex items-center gap-2 px-4 py-2 text-sm font-medium',
+                          theme.styles.button.primary,
+                          darkMode
+                        )}
+                        {...theme.animations.hover}
+                      >
+                        {isSendingPath ? (
+                          <>
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                            Sending...
+                          </>
+                        ) : (
+                          <>
+                            <Play className="w-4 h-4" />
+                            Send Path
+                          </>
+                        )}
+                      </motion.button>
+                      {(pathJobStatus?.status === 'pending' || pathJobStatus?.status === 'running') && (
+                        <motion.button
+                          onClick={cancelPathTransmission}
+                          className={getThemeClasses(
+                            'px-4 py-2 text-sm font-medium rounded-lg border',
+                            { light: 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100', dark: 'bg-red-900 border-red-700 text-red-300 hover:bg-red-800' },
+                            darkMode
+                          )}
+                          {...theme.animations.hover}
+                        >
+                          Cancel
+                        </motion.button>
+                      )}
+                    </div>
+                  </div>
+
+                  {pathSendError && (
+                    <p className="text-sm text-red-500">{pathSendError}</p>
+                  )}
+
+                  {pathJobStatus && (
+                    <div className={getThemeClasses(
+                      'p-4 rounded-lg border text-sm',
+                      { light: 'bg-gray-50 border-gray-200', dark: 'bg-gray-800 border-gray-700' },
+                      darkMode
+                    )}>
+                      <div className="flex flex-col gap-2">
+                        <div className="flex justify-between">
+                          <span className="font-medium">Status: {pathJobStatus.status || 'unknown'}</span>
+                          {pathJobStatus.jobId && (
+                            <span className="opacity-60">Job ID: {pathJobStatus.jobId}</span>
+                          )}
+                        </div>
+                        {pathJobStatus.totalPoints ? (
+                          <>
+                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+                              <div
+                                className="bg-blue-500 h-2 rounded-full"
+                                style={{ width: `${Math.min(100, Math.round((pathJobStatus.sentPoints || 0) / pathJobStatus.totalPoints * 100))}%` }}
+                              ></div>
+                            </div>
+                            <div className="flex justify-between text-xs opacity-75">
+                              <span>{pathJobStatus.sentPoints || 0} / {pathJobStatus.totalPoints} points</span>
+                              <span>{pathJobStatus.sentBatches || 0} / {pathJobStatus.totalBatches || 0} batches</span>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-xs opacity-75">Awaiting transmission data...</p>
+                        )}
+                        {pathJobStatus.error && (
+                          <p className="text-xs text-red-500">Error: {pathJobStatus.error}</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
               </motion.div>
             )}
           </div>

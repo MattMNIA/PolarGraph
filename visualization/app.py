@@ -11,7 +11,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 try:
     from flask_cors import CORS  # type: ignore[import]
 except ImportError:  # pragma: no cover - optional dependency during static analysis
@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from polargraph.path_sender import PathSender, PathSenderBusyError  # noqa: E402
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="../client/build", static_url_path="/")
 if CORS:
     CORS(app)  # Enable CORS for all routes
 
@@ -157,6 +157,14 @@ def _as_bool(value):
     if isinstance(value, str):
         return value.strip().lower() in {'1', 'true', 'yes', 'on'}
     return bool(value)
+
+@app.route("/")
+def serve_react():
+    return send_from_directory(app.static_folder, "index.html")
+
+@app.errorhandler(404)
+def not_found(_):
+    return send_from_directory(app.static_folder, "index.html")
 
 @app.route('/hello')
 def hello():

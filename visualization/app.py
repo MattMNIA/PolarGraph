@@ -158,6 +158,10 @@ def _as_bool(value):
         return value.strip().lower() in {'1', 'true', 'yes', 'on'}
     return bool(value)
 
+@app.route('/hello')
+def hello():
+    return "Hello, World!"
+
 @app.route('/api/visualize', methods=['POST'])
 def visualize():
     """API endpoint for running polargraph visualization"""

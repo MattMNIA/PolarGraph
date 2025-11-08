@@ -35,6 +35,20 @@ const buildApiUrl = (path) => {
   }
   return `${API_BASE_URL}${path}`;
 };
+const fetchPathStatus = async (signal) => {
+  const response = await fetch(buildApiUrl('/api/send-path/status'), {
+    signal,
+  });
+  if (!response.ok) {
+    return null;
+  }
+  try {
+    return await response.json();
+  } catch (error) {
+    console.warn('Failed to parse status response:', error);
+    return null;
+  }
+};
 
 // Navbar Component
 const Navbar = () => {
@@ -303,6 +317,37 @@ const Whiteboard = () => {
       return merged;
     });
   }, []);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let cancelled = false;
+
+    const pollStatus = async () => {
+      try {
+        const data = await fetchPathStatus(controller.signal);
+        if (!cancelled) {
+          if (data?.status && data.status !== 'idle') {
+            applyJobStatusUpdate(data);
+          } else {
+            applyJobStatusUpdate(null);
+          }
+        }
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          console.warn('Status poll failed:', error);
+        }
+      }
+    };
+
+    pollStatus();
+    const interval = setInterval(pollStatus, 5000);
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+      clearInterval(interval);
+    };
+  }, [applyJobStatusUpdate]);
 
   const handleMouseDown = (e, element) => {
     if (e.target.closest('.delete-btn') || e.target.closest('.resize-handle')) return;

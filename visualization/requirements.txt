@@ -5,3 +5,4 @@ flask-cors
 requests
 opencv-python
 scikit-image
+opencv-python-headless

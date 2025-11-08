@@ -18,6 +18,9 @@ const clamp = (value, min, max) => {
   const upperBound = max >= min ? max : min;
   return Math.min(Math.max(value, min), upperBound);
 };
+const API_PORT = process.env.REACT_APP_PORT || process.env.PORT || '3001';
+const API_BASE_URL = `http://localhost:${API_PORT}`;
+const buildApiUrl = (path) => `${API_BASE_URL}${path}`;
 
 // Navbar Component
 const Navbar = () => {
@@ -479,7 +482,7 @@ const Whiteboard = () => {
     setAnimationResult(null);
 
     try {
-      const response = await fetch('http://localhost:3001/api/visualize', {
+  const response = await fetch(buildApiUrl('/api/visualize'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -532,7 +535,7 @@ const Whiteboard = () => {
         return;
       }
 
-      const response = await fetch('http://localhost:3001/api/animation', {
+  const response = await fetch(buildApiUrl('/api/animation'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -608,7 +611,7 @@ const Whiteboard = () => {
     setIsSendingPath(true);
     setPathSendError(null);
     try {
-      const response = await fetch('http://localhost:3001/api/visualize', {
+  const response = await fetch(buildApiUrl('/api/visualize'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -633,7 +636,7 @@ const Whiteboard = () => {
 
   const cancelPathTransmission = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/send-path/cancel', {
+  const response = await fetch(buildApiUrl('/api/send-path/cancel'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -649,7 +652,7 @@ const Whiteboard = () => {
 
   const pausePathTransmission = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/send-path/pause', {
+  const response = await fetch(buildApiUrl('/api/send-path/pause'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -665,7 +668,7 @@ const Whiteboard = () => {
 
   const resumePathTransmission = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/send-path/resume', {
+  const response = await fetch(buildApiUrl('/api/send-path/resume'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -691,7 +694,7 @@ const Whiteboard = () => {
     if (status === 'pending' || status === 'running') {
       const interval = setInterval(async () => {
         try {
-          const response = await fetch('http://localhost:3001/api/send-path/status');
+          const response = await fetch(buildApiUrl('/api/send-path/status'));
           if (response.ok) {
             const data = await response.json();
             applyJobStatusUpdate(data);

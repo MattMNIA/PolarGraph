@@ -335,6 +335,7 @@ class PathSender:
             return True
 
         deadline = time.time() + self.status_timeout
+        consecutive_errors = 0
         while time.time() < deadline:
             if job.cancelled:
                 return False
@@ -345,9 +346,14 @@ class PathSender:
                 response.raise_for_status()
                 if self._controller_is_idle(response):
                     return True
+                consecutive_errors = 0
             except requests.RequestException as exc:
                 response = getattr(exc, "response", None)
                 if response is not None and response.status_code == requests.codes.not_found:
+                    return True
+                consecutive_errors += 1
+                if consecutive_errors >= 3:
+                    print(f"Controller status unavailable ({exc}); proceeding with send." )
                     return True
                 # transient error, retry until deadline
                 pass

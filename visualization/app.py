@@ -198,6 +198,13 @@ def _serve_static_index():
     return send_from_directory(static_dir, "index.html")
 
 
+def _current_job_status():
+    status = path_sender.status()
+    if status is None:
+        return {"status": "idle"}
+    return status
+
+
 @app.route("/")
 def serve_react():
     return _serve_static_index()
@@ -876,27 +883,30 @@ def path_transmission_status():
 def cancel_path_transmission():
     """Attempt to cancel the current transmission job."""
     job = path_sender.cancel_current()
+    status_payload = _current_job_status()
     if not job:
-        return jsonify({'status': 'idle'}), 200
-    return jsonify({'status': job.status, 'jobId': job.job_id, 'paused': job.paused, 'cancelUrl': job.cancel_url}), 202
+        return jsonify(status_payload), 200
+    return jsonify(status_payload), 202
 
 
 @app.route('/api/send-path/pause', methods=['POST'])
 def pause_path_transmission():
     """Pause sending new batches for the active job."""
     job = path_sender.pause_current()
+    status_payload = _current_job_status()
     if not job:
-        return jsonify({'status': 'idle'}), 200
-    return jsonify({'status': job.status, 'jobId': job.job_id, 'paused': job.paused, 'cancelUrl': job.cancel_url}), 200
+        return jsonify(status_payload), 200
+    return jsonify(status_payload), 200
 
 
 @app.route('/api/send-path/resume', methods=['POST'])
 def resume_path_transmission():
     """Resume batch sending if the current job is paused."""
     job = path_sender.resume_current()
+    status_payload = _current_job_status()
     if not job:
-        return jsonify({'status': 'idle'}), 200
-    return jsonify({'status': job.status, 'jobId': job.job_id, 'paused': job.paused, 'cancelUrl': job.cancel_url}), 200
+        return jsonify(status_payload), 200
+    return jsonify(status_payload), 200
 
 if __name__ == '__main__':
     # Try to import required modules

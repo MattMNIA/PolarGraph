@@ -806,7 +806,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
               </h1>
             </div>
             <div className={getThemeClasses(theme.styles.divider.base, theme.styles.divider, darkMode)}></div>
-            <p className="text-xl max-w-2xl mx-auto opacity-90">
+            <p className="text-xl max-w-2xl mx-auto opacity-90 pt-8">
               Create stunning whiteboard layouts with images and text. Drag, resize, and customize your designs with our intuitive interface.
             </p>
           </motion.div>

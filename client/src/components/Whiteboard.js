@@ -18,9 +18,23 @@ const clamp = (value, min, max) => {
   const upperBound = max >= min ? max : min;
   return Math.min(Math.max(value, min), upperBound);
 };
-const API_PORT = process.env.REACT_APP_PORT || process.env.PORT || '8001';
-const API_BASE_URL = `http://localhost:${API_PORT}`;
-const buildApiUrl = (path) => `${API_BASE_URL}${path}`;
+const API_PORT = process.env.REACT_APP_PORT || process.env.PORT || '3001';
+const ENV_API_BASE_URL = process.env.REACT_APP_API_BASE_URL || process.env.API_BASE_URL;
+const API_BASE_URL = (() => {
+  if (ENV_API_BASE_URL) {
+    return ENV_API_BASE_URL.replace(/\/$/, '');
+  }
+  if (process.env.NODE_ENV === 'production') {
+    return '';
+  }
+  return `http://localhost:${API_PORT}`;
+})();
+const buildApiUrl = (path) => {
+  if (!path.startsWith('/')) {
+    return `${API_BASE_URL}/${path}`;
+  }
+  return `${API_BASE_URL}${path}`;
+};
 
 // Navbar Component
 const Navbar = () => {

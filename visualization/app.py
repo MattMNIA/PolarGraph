@@ -852,7 +852,7 @@ if __name__ == '__main__':
         print("Make sure you're running from the visualization directory")
         sys.exit(1)
 
-    port = int(os.environ.get('PORT', 3001))
+    port = int(os.environ.get('PORT', 8001))
     print(f"Starting Flask server on port {port}")
     print(f"Visualization endpoint: http://localhost:{port}/api/visualize")
     app.run(host='0.0.0.0', port=port, debug=False)

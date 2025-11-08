@@ -18,7 +18,7 @@ const clamp = (value, min, max) => {
   const upperBound = max >= min ? max : min;
   return Math.min(Math.max(value, min), upperBound);
 };
-const API_PORT = process.env.REACT_APP_PORT || process.env.PORT || '3001';
+const API_PORT = process.env.REACT_APP_PORT || process.env.PORT || '8001';
 const API_BASE_URL = `http://localhost:${API_PORT}`;
 const buildApiUrl = (path) => `${API_BASE_URL}${path}`;
 

@@ -68,6 +68,18 @@ MachineState machine = {0.0f, 0.0f, 0.0f, 0.0f, 0, 0, false, false};
 
 Servo penServo;
 bool servoPenDown = false;
+volatile bool cancelRequested = false;
+
+void applyPenState(bool down);
+
+void emergencyStop() {
+  for (auto& motor : motors) {
+    enableMotor(motor, false);
+    motor.busy = false;
+  }
+  applyPenState(false);
+  machine.pen_down = false;
+}
 
 void addCorsHeaders() {
   server.sendHeader("Access-Control-Allow-Origin", "*");
@@ -121,10 +133,16 @@ void performSteps(MotorConfig& motor, int32_t steps, uint32_t speed) {
   digitalWrite(motor.dirPin, forward ? HIGH : LOW);
 
   for (uint32_t i = 0; i < totalSteps; ++i) {
+    if (cancelRequested) {
+      enableMotor(motor, false);
+      motor.busy = false;
+      return;
+    }
     digitalWrite(motor.stepPin, HIGH);
     delayMicroseconds(MIN_PULSE_US);
     digitalWrite(motor.stepPin, LOW);
     delayMicroseconds(stepDelayUs - MIN_PULSE_US);
+    server.handleClient();
   }
 
   motor.busy = false;
@@ -136,7 +154,7 @@ void pulsePin(uint8_t pin) {
   digitalWrite(pin, LOW);
 }
 
-void runDualMotorSteps(int32_t leftDelta, int32_t rightDelta, uint32_t speed) {
+bool runDualMotorSteps(int32_t leftDelta, int32_t rightDelta, uint32_t speed) {
   MotorConfig& left = motors[0];
   MotorConfig& right = motors[1];
 
@@ -144,7 +162,7 @@ void runDualMotorSteps(int32_t leftDelta, int32_t rightDelta, uint32_t speed) {
   const uint32_t rightSteps = static_cast<uint32_t>(abs(rightDelta));
   const uint32_t maxSteps = max(leftSteps, rightSteps);
   if (maxSteps == 0) {
-    return;
+    return true;
   }
 
   const uint32_t targetSpeed = clampSpeed(speed);
@@ -163,6 +181,12 @@ void runDualMotorSteps(int32_t leftDelta, int32_t rightDelta, uint32_t speed) {
   uint32_t accRight = 0;
 
   for (uint32_t i = 0; i < maxSteps; ++i) {
+    if (cancelRequested) {
+      emergencyStop();
+      left.busy = false;
+      right.busy = false;
+      return false;
+    }
     accLeft += leftSteps;
     accRight += rightSteps;
 
@@ -177,10 +201,18 @@ void runDualMotorSteps(int32_t leftDelta, int32_t rightDelta, uint32_t speed) {
     }
 
     delayMicroseconds(stepDelayUs);
+    server.handleClient();
   }
 
   left.busy = false;
   right.busy = false;
+
+  if (cancelRequested) {
+    emergencyStop();
+    return false;
+  }
+
+  return true;
 }
 
 void applyPenState(bool down) {
@@ -229,7 +261,9 @@ bool moveToXY(float x, float y, bool penDown, uint32_t speed) {
 
   applyPenState(penDown);
 
-  runDualMotorSteps(static_cast<int32_t>(leftDelta), static_cast<int32_t>(rightDelta), speed);
+  if (!runDualMotorSteps(static_cast<int32_t>(leftDelta), static_cast<int32_t>(rightDelta), speed)) {
+    return false;
+  }
 
   machine.left_steps = targetLeftSteps;
   machine.right_steps = targetRightSteps;
@@ -362,6 +396,25 @@ void handlePen() {
   server.send(200, "application/json", payload);
 }
 
+void handleCancel() {
+  addCorsHeaders();
+  if (server.method() != HTTP_POST) {
+    server.send(405, "application/json", "{\"error\":\"Use POST\"}");
+    return;
+  }
+
+  cancelRequested = true;
+  emergencyStop();
+
+  StaticJsonDocument<128> response;
+  response["status"] = "ok";
+  response["cancelled"] = true;
+
+  String payload;
+  serializeJson(response, payload);
+  server.send(200, "application/json", payload);
+}
+
 void handlePath() {
   addCorsHeaders();
   if (server.method() != HTTP_POST) {
@@ -383,6 +436,8 @@ void handlePath() {
 
   const bool reset = doc["reset"] | false;
   const uint32_t defaultSpeed = doc["speed"] | DEFAULT_SPEED;
+
+  cancelRequested = false;
 
   if (reset || !machine.initialized) {
     JsonObject start = doc["startPosition"].as<JsonObject>();
@@ -446,10 +501,37 @@ void handlePath() {
     const uint32_t speed = entry["speed"] | defaultSpeed;
 
     if (!moveToXY(targetX, targetY, penDown, speed)) {
+      if (cancelRequested) {
+        break;
+      }
       server.send(422, "application/json", "{\"error\":\"Path execution failed\"}");
       return;
     }
     executed++;
+
+    if (cancelRequested) {
+      break;
+    }
+  }
+
+  if (cancelRequested) {
+    cancelRequested = false;
+
+    StaticJsonDocument<256> response;
+    response["status"] = "cancelled";
+    response["pointsProcessed"] = executed;
+    JsonObject state = response.createNestedObject("state");
+    state["x_mm"] = machine.x_mm;
+    state["y_mm"] = machine.y_mm;
+    state["penDown"] = machine.pen_down;
+    JsonObject stepsObj = state.createNestedObject("steps");
+    stepsObj["left"] = machine.left_steps;
+    stepsObj["right"] = machine.right_steps;
+
+    String payload;
+    serializeJson(response, payload);
+    server.send(200, "application/json", payload);
+    return;
   }
 
   StaticJsonDocument<256> response;
@@ -509,6 +591,8 @@ void setup() {
   server.on("/api/pen", HTTP_POST, handlePen);
   server.on("/api/path", HTTP_OPTIONS, handleCorsPreflight);
   server.on("/api/path", HTTP_POST, handlePath);
+  server.on("/api/cancel", HTTP_OPTIONS, handleCorsPreflight);
+  server.on("/api/cancel", HTTP_POST, handleCancel);
   server.begin();
 }
 

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from './ThemeProvider';
 import { theme, getThemeClasses } from '../theme';
 import { Play, Pause, Download, Upload, Type, Palette, Settings, Eye, EyeOff, ChevronUp, Trash2, Sun, Moon } from 'lucide-react';
+import { buildApiUrl, fetchPathStatus } from '../utils/api';
 
 const CANVAS_WIDTH = 1150;
 const CANVAS_HEIGHT = 730;
@@ -18,41 +19,10 @@ const clamp = (value, min, max) => {
   const upperBound = max >= min ? max : min;
   return Math.min(Math.max(value, min), upperBound);
 };
-const API_PORT = process.env.REACT_APP_PORT || process.env.PORT || '3001';
-const ENV_API_BASE_URL = process.env.REACT_APP_API_BASE_URL || process.env.API_BASE_URL;
-const API_BASE_URL = (() => {
-  if (ENV_API_BASE_URL) {
-    return ENV_API_BASE_URL.replace(/\/$/, '');
-  }
-  if (process.env.NODE_ENV === 'production') {
-    return '';
-  }
-  return `http://localhost:${API_PORT}`;
-})();
-const buildApiUrl = (path) => {
-  if (!path.startsWith('/')) {
-    return `${API_BASE_URL}/${path}`;
-  }
-  return `${API_BASE_URL}${path}`;
-};
-const fetchPathStatus = async (signal) => {
-  const response = await fetch(buildApiUrl('/api/send-path/status'), {
-    signal,
-  });
-  if (!response.ok) {
-    return null;
-  }
-  try {
-    return await response.json();
-  } catch (error) {
-    console.warn('Failed to parse status response:', error);
-    return null;
-  }
-};
-
 // Navbar Component
-const Navbar = () => {
+const Navbar = ({ onOpenMotorControl }) => {
   const { darkMode, toggleTheme } = useTheme();
+  const handleOpenMotorControl = typeof onOpenMotorControl === 'function' ? onOpenMotorControl : null;
 
   return (
     <motion.nav
@@ -69,6 +39,21 @@ const Navbar = () => {
             </h1>
           </div>
           <div className="flex items-center space-x-4">
+            {handleOpenMotorControl && (
+              <motion.button
+                onClick={handleOpenMotorControl}
+                className={getThemeClasses(
+                  'flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors',
+                  { light: 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100', dark: 'bg-blue-900 border-blue-700 text-blue-200 hover:bg-blue-800' },
+                  darkMode
+                )}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+              >
+                <Settings className="w-4 h-4" />
+                <span className="hidden sm:inline">Motor Control</span>
+              </motion.button>
+            )}
             <motion.button
               onClick={toggleTheme}
               className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
@@ -151,7 +136,7 @@ const Footer = () => {
   );
 };
 
-const Whiteboard = () => {
+const Whiteboard = ({ onOpenMotorControl }) => {
   const { darkMode } = useTheme();
   const [elements, setElements] = useState([]);
   const [textInput, setTextInput] = useState('');
@@ -191,10 +176,12 @@ const Whiteboard = () => {
 
           const scaledWidth = Math.round(img.width * scale);
           const scaledHeight = Math.round(img.height * scale);
+          const constrainedWidth = clamp(scaledWidth, MIN_ELEMENT_WIDTH, CANVAS_WIDTH);
+          const constrainedHeight = clamp(scaledHeight, MIN_ELEMENT_HEIGHT, CANVAS_HEIGHT);
 
           const margin = 50;
-          const maxX = Math.max(0, maxCanvasWidth - scaledWidth);
-          const maxY = Math.max(0, maxCanvasHeight - scaledHeight);
+          const maxX = Math.max(0, maxCanvasWidth - constrainedWidth);
+          const maxY = Math.max(0, maxCanvasHeight - constrainedHeight);
           const randomX = margin + Math.random() * Math.max(0, maxX - margin * 2);
           const randomY = margin + Math.random() * Math.max(0, maxY - margin * 2);
 
@@ -204,8 +191,8 @@ const Whiteboard = () => {
             src: e.target.result,
             x: clamp(randomX, 0, maxX),
             y: clamp(randomY, 0, maxY),
-            width: scaledWidth,
-            height: scaledHeight,
+            width: constrainedWidth,
+            height: constrainedHeight,
             originalWidth: img.width,
             originalHeight: img.height,
           };
@@ -653,6 +640,21 @@ const Whiteboard = () => {
       }
       return `${normalizedUrl}/api/status`;
     })();
+    const cancelUrl = (() => {
+      if (!normalizedUrl) {
+        return '';
+      }
+      if (/\/cancel$/i.test(normalizedUrl)) {
+        return normalizedUrl;
+      }
+      if (/\/path$/i.test(normalizedUrl)) {
+        return normalizedUrl.replace(/\/path$/i, '/cancel');
+      }
+      if (/\/api$/i.test(normalizedUrl)) {
+        return `${normalizedUrl}/cancel`;
+      }
+      return `${normalizedUrl}/api/cancel`;
+    })();
 
     const payload = buildVisualizationPayload({
       sendToController: true,
@@ -660,6 +662,7 @@ const Whiteboard = () => {
       controllerSpeed: Number(controllerSpeed) || 0,
       controllerReset: true,
       controllerStatusUrl: statusUrl || undefined,
+      controllerCancelUrl: cancelUrl || undefined,
     });
 
     if (!payload) {
@@ -670,7 +673,7 @@ const Whiteboard = () => {
     setIsSendingPath(true);
     setPathSendError(null);
     try {
-  const response = await fetch(buildApiUrl('/api/visualize'), {
+      const response = await fetch(buildApiUrl('/api/visualize'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -695,7 +698,7 @@ const Whiteboard = () => {
 
   const cancelPathTransmission = async () => {
     try {
-  const response = await fetch(buildApiUrl('/api/send-path/cancel'), {
+      const response = await fetch(buildApiUrl('/api/send-path/cancel'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -711,7 +714,7 @@ const Whiteboard = () => {
 
   const pausePathTransmission = async () => {
     try {
-  const response = await fetch(buildApiUrl('/api/send-path/pause'), {
+      const response = await fetch(buildApiUrl('/api/send-path/pause'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -727,7 +730,7 @@ const Whiteboard = () => {
 
   const resumePathTransmission = async () => {
     try {
-  const response = await fetch(buildApiUrl('/api/send-path/resume'), {
+      const response = await fetch(buildApiUrl('/api/send-path/resume'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -788,7 +791,7 @@ const Whiteboard = () => {
     <div className={getThemeClasses('min-h-screen transition-colors duration-300',
       { light: 'bg-gray-50 text-gray-900', dark: 'bg-gray-900 text-white' }, darkMode)}>
 
-      <Navbar />
+  <Navbar onOpenMotorControl={onOpenMotorControl} />
 
       {/* Hero Section */}
       <section className={getThemeClasses(theme.styles.section.base + ' mx-0 pt-12', theme.styles.section, darkMode)}>
@@ -1461,8 +1464,7 @@ const Whiteboard = () => {
                         disabled={
                           isSendingPath ||
                           elements.length === 0 ||
-                          pathJobStatus?.status === 'pending' ||
-                          pathJobStatus?.status === 'running'
+                          ['pending', 'running', 'cancelling'].includes(pathJobStatus?.status)
                         }
                         className={getThemeClasses(
                           theme.styles.button.primary.base + ' flex items-center gap-2 px-4 py-2 text-sm font-medium',

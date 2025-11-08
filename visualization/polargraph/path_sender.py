@@ -24,6 +24,7 @@ class PathSendJob:
     points: List[dict]
     batch_size: int
     status_url: Optional[str]
+    cancel_url: Optional[str]
     status: str = "pending"  # pending -> running -> completed/failed/cancelled
     error: Optional[str] = None
     sent_batches: int = 0
@@ -91,6 +92,10 @@ class PathSenderBusyError(RuntimeError):
     """Raised when a send job is already in progress."""
 
 
+class JobCancelledError(RuntimeError):
+    """Internal signal used to unwind when a cancel request arrives."""
+
+
 class PathSender:
     """Manages asynchronous path transmission to the microcontroller."""
 
@@ -123,6 +128,7 @@ class PathSender:
         speed: int,
         reset: bool = True,
         status_url: Optional[str] = None,
+        cancel_url: Optional[str] = None,
     ) -> PathSendJob:
         if not controller_url:
             raise ValueError("controller_url required")
@@ -134,6 +140,7 @@ class PathSender:
             job_id=str(uuid.uuid4()),
             controller_url=controller_url.rstrip("/"),
             status_url=status_url.rstrip("/") if status_url else None,
+            cancel_url=cancel_url.rstrip("/") if cancel_url else None,
             start_position=start_position,
             speed=max(1, int(speed)),
             reset=reset,
@@ -151,11 +158,24 @@ class PathSender:
         return job
 
     def cancel_current(self) -> Optional[PathSendJob]:
+        job: Optional[PathSendJob] = None
+        cancel_url: Optional[str] = None
         with self._lock:
             job = self._job
             if job and job.status in {"pending", "running"}:
                 job.request_cancel()
-            return job
+                cancel_url = job.cancel_url
+                if job.status not in {"cancelled", "failed"}:
+                    job.status = "cancelling"
+            else:
+                cancel_url = None
+
+        if cancel_url:
+            try:
+                self._session.post(cancel_url, timeout=self.timeout)
+            except requests.RequestException as exc:
+                print(f"Controller cancel request failed: {exc}")
+        return job
 
     def pause_current(self) -> Optional[PathSendJob]:
         with self._lock:
@@ -188,6 +208,7 @@ class PathSender:
                 "finishedAt": reference.finished_at,
                 "error": reference.error,
                 "paused": reference.paused,
+                "cancelUrl": reference.cancel_url,
             }
 
     def _run_job(self, job: PathSendJob) -> None:
@@ -204,6 +225,8 @@ class PathSender:
                     return
 
                 if not self._wait_until_ready(job):
+                    if job.cancelled:
+                        raise JobCancelledError()
                     job.mark_failed("Controller did not become ready in time")
                     return
 
@@ -215,6 +238,8 @@ class PathSender:
                 job.sent_points += len(batch_points)
 
             job.mark_complete()
+        except JobCancelledError:
+            job.mark_cancelled()
         except requests.RequestException as exc:
             job.mark_failed(str(exc))
         except Exception as exc:  # noqa: BLE001 - capture unexpected errors for reporting
@@ -274,11 +299,11 @@ class PathSender:
 
         while True:
             if job.cancelled:
-                raise RuntimeError("Job cancelled during controller retry")
+                raise JobCancelledError()
 
             attempt += 1
             if not job.wait_if_paused():
-                raise RuntimeError("Job cancelled during controller retry")
+                raise JobCancelledError()
             try:
                 response = self._session.post(url, json=payload, timeout=self.timeout)
                 response.raise_for_status()

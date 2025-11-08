@@ -133,6 +133,40 @@ def _derive_path_url(controller_url: Optional[str], explicit_path_url: Optional[
     return urlunparse(cleaned)
 
 
+def _derive_cancel_url(controller_url: Optional[str], explicit_cancel_url: Optional[str] = None) -> Optional[str]:
+    if explicit_cancel_url:
+        return explicit_cancel_url.rstrip('/')
+    if not controller_url:
+        return None
+
+    if not isinstance(controller_url, str):
+        controller_url = str(controller_url)
+
+    controller_url = controller_url.strip()
+    if not controller_url:
+        return None
+
+    parsed = urlparse(controller_url)
+    path = (parsed.path or '').rstrip('/')
+
+    if not path:
+        cancel_path = '/api/cancel'
+    elif path.endswith('/cancel'):
+        cancel_path = path
+    elif path.endswith('/path'):
+        base_path = path[:-len('/path')]
+        if not base_path:
+            base_path = '/api'
+        cancel_path = f"{base_path}/cancel"
+    elif path.endswith('/api'):
+        cancel_path = f"{path}/cancel"
+    else:
+        cancel_path = f"{path}/cancel"
+
+    cleaned = parsed._replace(path=cancel_path, params='', query='', fragment='')
+    return urlunparse(cleaned)
+
+
 def _flatten_path_for_transmission(path_points):
     flattened = []
     for entry in path_points:
@@ -158,13 +192,19 @@ def _as_bool(value):
         return value.strip().lower() in {'1', 'true', 'yes', 'on'}
     return bool(value)
 
+
+def _serve_static_index():
+    static_dir = app.static_folder or str(Path(__file__).parent / 'static')
+    return send_from_directory(static_dir, "index.html")
+
+
 @app.route("/")
 def serve_react():
-    return send_from_directory(app.static_folder, "index.html")
+    return _serve_static_index()
 
 @app.errorhandler(404)
 def not_found(_):
-    return send_from_directory(app.static_folder, "index.html")
+    return _serve_static_index()
 
 @app.route('/hello')
 def hello():
@@ -440,6 +480,12 @@ def visualize():
                         else:
                             status_override = None
                         status_url = _derive_status_url(controller_url, status_override)
+                        cancel_override = data.get('controllerCancelUrl') or data.get('controllerCancelURL')
+                        if isinstance(cancel_override, str):
+                            cancel_override = cancel_override.strip()
+                        else:
+                            cancel_override = None
+                        cancel_url = _derive_cancel_url(controller_url, cancel_override)
                         try:
                             job = path_sender.start_job(
                                 controller_url=controller_path_url,
@@ -448,6 +494,7 @@ def visualize():
                                 speed=controller_speed,
                                 reset=controller_reset,
                                 status_url=status_url,
+                                cancel_url=cancel_url,
                             )
                             job_info = {
                                 'jobId': job.job_id,
@@ -455,6 +502,7 @@ def visualize():
                                 'totalPoints': len(path_points),
                                 'batchSize': job.batch_size,
                                 'paused': job.paused,
+                                'cancelUrl': cancel_url,
                             }
                         except PathSenderBusyError:
                             return jsonify({'error': 'A path transmission is already in progress'}), 409
@@ -775,6 +823,12 @@ def queue_path_transmission():
         else:
             status_override = None
         status_url = _derive_status_url(controller_url, status_override)
+        cancel_override = data.get('controllerCancelUrl') or data.get('controllerCancelURL')
+        if isinstance(cancel_override, str):
+            cancel_override = cancel_override.strip()
+        else:
+            cancel_override = None
+        cancel_url = _derive_cancel_url(controller_url, cancel_override)
 
         controller_path_url = _derive_path_url(controller_url, controller_path_override)
         if not controller_path_url:
@@ -788,6 +842,7 @@ def queue_path_transmission():
                 speed=speed,
                 reset=reset,
                 status_url=status_url,
+                cancel_url=cancel_url,
             )
         except PathSenderBusyError:
             return jsonify({'error': 'A path transmission is already in progress'}), 409
@@ -799,6 +854,7 @@ def queue_path_transmission():
             'totalPoints': len(points),
             'batchSize': job.batch_size,
             'paused': job.paused,
+            'cancelUrl': cancel_url,
         }), 200
 
     except Exception as exc:
@@ -822,7 +878,7 @@ def cancel_path_transmission():
     job = path_sender.cancel_current()
     if not job:
         return jsonify({'status': 'idle'}), 200
-    return jsonify({'status': job.status, 'jobId': job.job_id, 'paused': job.paused}), 202
+    return jsonify({'status': job.status, 'jobId': job.job_id, 'paused': job.paused, 'cancelUrl': job.cancel_url}), 202
 
 
 @app.route('/api/send-path/pause', methods=['POST'])
@@ -831,7 +887,7 @@ def pause_path_transmission():
     job = path_sender.pause_current()
     if not job:
         return jsonify({'status': 'idle'}), 200
-    return jsonify({'status': job.status, 'jobId': job.job_id, 'paused': job.paused}), 200
+    return jsonify({'status': job.status, 'jobId': job.job_id, 'paused': job.paused, 'cancelUrl': job.cancel_url}), 200
 
 
 @app.route('/api/send-path/resume', methods=['POST'])
@@ -840,7 +896,7 @@ def resume_path_transmission():
     job = path_sender.resume_current()
     if not job:
         return jsonify({'status': 'idle'}), 200
-    return jsonify({'status': job.status, 'jobId': job.job_id, 'paused': job.paused}), 200
+    return jsonify({'status': job.status, 'jobId': job.job_id, 'paused': job.paused, 'cancelUrl': job.cancel_url}), 200
 
 if __name__ == '__main__':
     # Try to import required modules

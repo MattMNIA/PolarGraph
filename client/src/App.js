@@ -5,6 +5,7 @@ import MotorTestPage from './components/MotorTestPage';
 
 function App() {
   const [view, setView] = useState('whiteboard');
+  const showMotorTest = process.env.REACT_APP_SHOW_MOTOR_TEST === 'true';
 
   const toggleView = () => {
     setView((prev) => (prev === 'whiteboard' ? 'test' : 'whiteboard'));
@@ -15,16 +16,18 @@ function App() {
   return (
     <ThemeProvider>
       <div className="relative min-h-screen">
-        <div className="fixed bottom-6 left-6 z-50">
-          <button
-            type="button"
-            onClick={toggleView}
-            className="px-4 py-2 rounded-lg shadow bg-blue-600 text-white hover:bg-blue-700 transition"
-          >
-            {isWhiteboard ? 'Open Motor Test' : 'Back to Designer'}
-          </button>
-        </div>
-        {isWhiteboard ? <Whiteboard /> : <MotorTestPage />}
+        {showMotorTest && (
+          <div className="fixed bottom-6 left-6 z-50">
+            <button
+              type="button"
+              onClick={toggleView}
+              className="px-4 py-2 rounded-lg shadow bg-blue-600 text-white hover:bg-blue-700 transition"
+            >
+              {isWhiteboard ? 'Open Motor Test' : 'Back to Designer'}
+            </button>
+          </div>
+        )}
+        {isWhiteboard || !showMotorTest ? <Whiteboard /> : <MotorTestPage />}
       </div>
     </ThemeProvider>
   );

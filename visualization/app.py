@@ -843,4 +843,4 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 3001))
     print(f"Starting Flask server on port {port}")
     print(f"Visualization endpoint: http://localhost:{port}/api/visualize")
-    app.run(host='0.0.0.0', port=port, debug=True)
+    app.run(host='0.0.0.0', port=port, debug=False)

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Loader2, Pause, Play, RefreshCcw, Square, Sun, Moon } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
@@ -33,6 +33,7 @@ const MotorControlPage = ({ onBack }) => {
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
+  const consecutiveFailureRef = useRef(0);
 
   const applyStatusUpdate = useCallback((update) => {
     setStatus((prev) => mergeStatus(update, prev));
@@ -45,15 +46,26 @@ const MotorControlPage = ({ onBack }) => {
       }
       try {
         const data = await fetchPathStatus();
+        if (!data) {
+          consecutiveFailureRef.current += 1;
+          if (consecutiveFailureRef.current >= 3) {
+            setError('Unable to contact the visualization service. Retrying…');
+          }
+          return;
+        }
         if (data?.status && data.status !== 'idle') {
           applyStatusUpdate(data);
         } else if (data?.status === 'idle') {
           setStatus(null);
         }
         setError(null);
+        consecutiveFailureRef.current = 0;
       } catch (err) {
         if (err?.name !== 'AbortError') {
-          setError(err?.message || 'Failed to fetch controller status');
+          consecutiveFailureRef.current += 1;
+          if (consecutiveFailureRef.current >= 3) {
+            setError(err?.message || 'Failed to fetch controller status');
+          }
         }
       } finally {
         if (showSpinner) {
@@ -115,7 +127,14 @@ const MotorControlPage = ({ onBack }) => {
   const canCancel = isActive || status?.paused;
 
   const progressPercent = useMemo(() => {
-    if (!status?.totalPoints || !Number.isFinite(status.totalPoints) || status.totalPoints <= 0) {
+    if (!status) {
+      return 0;
+    }
+    const activeStatuses = ['pending', 'running', 'cancelling'];
+    if (!activeStatuses.includes(status.status)) {
+      return 0;
+    }
+    if (!status.totalPoints || !Number.isFinite(status.totalPoints) || status.totalPoints <= 0) {
       return 0;
     }
     const sent = Number(status.sentPoints || 0);

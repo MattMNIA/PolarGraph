@@ -149,6 +149,10 @@ class PathSender:
         )
 
         with self._lock:
+            # Clear any stale job state to prevent confusion
+            if self._job and self._job.status not in {"pending", "running"}:
+                self._last_job = self._job
+                self._job = None
             if self._job and self._job.status in {"pending", "running"}:
                 raise PathSenderBusyError("Path transmission already in progress")
             self._job = job
@@ -197,7 +201,7 @@ class PathSender:
             reference = job or self._last_job
             if not reference:
                 return None
-            return {
+            status_dict = {
                 "jobId": reference.job_id,
                 "status": reference.status,
                 "sentPoints": reference.sent_points,
@@ -211,6 +215,11 @@ class PathSender:
                 "cancelUrl": reference.cancel_url,
                 "statusUrl": reference.status_url,
             }
+            # Ensure sentPoints never exceeds totalPoints
+            if status_dict["sentPoints"] > status_dict["totalPoints"]:
+                print(f"Warning: sentPoints ({status_dict['sentPoints']}) > totalPoints ({status_dict['totalPoints']}), capping at total")
+                status_dict["sentPoints"] = status_dict["totalPoints"]
+            return status_dict
 
     def _run_job(self, job: PathSendJob) -> None:
         try:
@@ -287,7 +296,7 @@ class PathSender:
                 raise RuntimeError(f"Controller error: {data['error']}")
             status = data.get("status")
             success = data.get("success")
-            if status is not None and str(status).lower() not in {"ok", "success"}:
+            if status is not None and str(status).lower() not in {"ok", "success", "accepted"}:
                 raise RuntimeError(f"Controller reported status '{status}'")
             if success is not None and not success:
                 raise RuntimeError("Controller reported failure")
@@ -306,10 +315,15 @@ class PathSender:
             if not job.wait_if_paused():
                 raise JobCancelledError()
             try:
+                print(f"Sending batch {job.sent_batches + 1}/{job.total_batches} to {url} (attempt {attempt})")
                 response = self._session.post(url, json=payload, timeout=self.timeout)
                 response.raise_for_status()
                 return response
             except requests.RequestException as exc:
+                print(f"Request failed: {exc}")
+                if hasattr(exc, 'response') and exc.response:
+                    print(f"Response status: {exc.response.status_code}")
+                    print(f"Response body: {exc.response.text[:500]}")
                 if not self._is_retryable_error(exc):
                     raise
 
@@ -333,32 +347,38 @@ class PathSender:
 
     def _wait_until_ready(self, job: PathSendJob) -> bool:
         if not job.status_url:
+            print("No status URL provided, proceeding without waiting")
             return True
 
         deadline = time.time() + self.status_timeout
         consecutive_errors = 0
+        print(f"Waiting for controller to become ready (timeout: {self.status_timeout}s)")
         while time.time() < deadline:
             if job.cancelled:
                 return False
             try:
                 response = self._session.get(job.status_url, timeout=self.timeout)
                 if response.status_code == requests.codes.not_found:
+                    print("Status endpoint returned 404, assuming controller is ready")
                     return True
                 response.raise_for_status()
                 if self._controller_is_idle(response):
+                    print("Controller is ready")
                     return True
                 consecutive_errors = 0
             except requests.RequestException as exc:
                 response = getattr(exc, "response", None)
                 if response is not None and response.status_code == requests.codes.not_found:
+                    print("Status endpoint returned 404 during error, assuming controller is ready")
                     return True
                 consecutive_errors += 1
                 if consecutive_errors >= 3:
-                    print(f"Controller status unavailable ({exc}); proceeding with send." )
+                    print(f"Controller status unavailable after {consecutive_errors} errors ({exc}); proceeding with send.")
                     return True
                 # transient error, retry until deadline
                 pass
             time.sleep(self.status_poll_interval)
+        print("Controller did not become ready in time")
         return False
 
     @staticmethod
@@ -366,10 +386,21 @@ class PathSender:
         try:
             data = response.json()
         except ValueError:
+            print(f"Controller status response is not valid JSON: {response.text[:200]}")
             return True
 
         if not isinstance(data, dict):
+            print(f"Controller status response is not a dict: {type(data)}")
             return True
+
+        # Check for various possible status formats
+        status = data.get("status")
+        if isinstance(status, str):
+            status_lower = status.lower()
+            if status_lower in {"busy", "running", "drawing"}:
+                return False
+            elif status_lower in {"idle", "ready", "stopped"}:
+                return True
 
         motors = data.get("motors")
         if isinstance(motors, list):
@@ -382,4 +413,6 @@ class PathSender:
                     elif busy_flag:
                         return False
 
+        # If we can't determine status, assume idle to avoid infinite waiting
+        print(f"Could not determine controller status from response: {data}")
         return True

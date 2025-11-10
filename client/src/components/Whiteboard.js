@@ -313,7 +313,10 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       try {
         const data = await fetchPathStatus(controller.signal);
         if (!cancelled) {
-          if (data?.status && data.status !== 'idle') {
+          if (!data) {
+            return;
+          }
+          if (data.status && data.status !== 'idle') {
             applyJobStatusUpdate(data);
           } else {
             applyJobStatusUpdate(null);

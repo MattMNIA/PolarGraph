@@ -209,6 +209,7 @@ class PathSender:
                 "error": reference.error,
                 "paused": reference.paused,
                 "cancelUrl": reference.cancel_url,
+                "statusUrl": reference.status_url,
             }
 
     def _run_job(self, job: PathSendJob) -> None:

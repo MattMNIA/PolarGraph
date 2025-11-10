@@ -1212,7 +1212,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                           <img
                             src={element.src}
                             alt="Uploaded"
-                            className="w-full h-full object-contain"
+                            className="w-full h-full object-fill"
                             onDragStart={(e) => e.preventDefault()} // Prevent browser's default drag behavior
                             draggable={false} // Explicitly disable dragging
                           />

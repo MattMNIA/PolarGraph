@@ -8,6 +8,9 @@ import sys
 import base64
 import tempfile
 import subprocess
+import threading
+import time
+import atexit
 from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, urlunparse
@@ -20,6 +23,7 @@ import traceback
 import cv2
 import numpy as np
 from PIL import Image, ImageDraw
+import requests
 
 # Set matplotlib backend to non-interactive to prevent threading issues (if matplotlib is available)
 try:
@@ -38,6 +42,94 @@ if CORS:
     CORS(app)  # Enable CORS for all routes
 
 path_sender = PathSender(batch_size=100)
+
+
+class ControllerStatusPoller:
+    """Background poller that keeps the controller's /api/status response cached."""
+
+    def __init__(self, interval: float = 2.0, stale_after: float = 10.0) -> None:
+        self._interval = max(0.5, interval)
+        self._stale_after = max(self._interval, stale_after)
+        self._status_url: Optional[str] = None
+        self._last_status: Optional[dict] = None
+        self._last_error: Optional[str] = None
+        self._last_checked: Optional[float] = None
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._thread: Optional[threading.Thread] = None
+        self._session = requests.Session()
+
+    def set_status_url(self, status_url: Optional[str]) -> None:
+        """Update the controller status endpoint that should be polled."""
+        normalized = status_url.rstrip('/') if status_url else None
+        with self._lock:
+            if normalized != self._status_url:
+                self._status_url = normalized
+                self._last_status = None
+                self._last_error = None
+                self._last_checked = None
+        if normalized:
+            self._ensure_thread()
+
+    def _ensure_thread(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop_event.clear()
+        self._thread = threading.Thread(target=self._run, name="controller-status-poller", daemon=True)
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop_event.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=1.0)
+
+    def snapshot(self) -> dict:
+        with self._lock:
+            data = {
+                'statusUrl': self._status_url,
+                'lastChecked': self._last_checked,
+                'status': self._last_status,
+                'error': self._last_error,
+                'stale': False,
+            }
+        if data['lastChecked'] is not None:
+            data['stale'] = (time.time() - data['lastChecked']) > self._stale_after
+        return data
+
+    def _run(self) -> None:
+        while not self._stop_event.is_set():
+            status_url = None
+            with self._lock:
+                status_url = self._status_url
+            if not status_url:
+                # Idle until a status url is configured again.
+                self._stop_event.wait(self._interval)
+                continue
+
+            try:
+                response = self._session.get(status_url, timeout=5.0)
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, dict):
+                    payload = {'raw': payload}
+                with self._lock:
+                    self._last_status = payload
+                    self._last_error = None
+                    self._last_checked = time.time()
+            except requests.RequestException as exc:
+                with self._lock:
+                    self._last_error = str(exc)
+                    self._last_checked = time.time()
+            except ValueError as exc:
+                with self._lock:
+                    self._last_error = f"Invalid JSON from controller status: {exc}"
+                    self._last_checked = time.time()
+
+            self._stop_event.wait(self._interval)
+
+
+controller_status_cache = ControllerStatusPoller()
+atexit.register(controller_status_cache.stop)
 
 
 def _normalize_transmission_points(raw_points):
@@ -198,10 +290,13 @@ def _serve_static_index():
     return send_from_directory(static_dir, "index.html")
 
 
-def _current_job_status():
-    status = path_sender.status()
-    if status is None:
-        return {"status": "idle"}
+def _current_job_status() -> dict:
+    job_status = path_sender.status()
+    if job_status is None:
+        status: dict = {"status": "idle"}
+    else:
+        status = dict(job_status)
+    status['controllerStatus'] = controller_status_cache.snapshot()
     return status
 
 
@@ -503,6 +598,7 @@ def visualize():
                                 status_url=status_url,
                                 cancel_url=cancel_url,
                             )
+                            controller_status_cache.set_status_url(status_url)
                             job_info = {
                                 'jobId': job.job_id,
                                 'status': job.status,
@@ -510,6 +606,7 @@ def visualize():
                                 'batchSize': job.batch_size,
                                 'paused': job.paused,
                                 'cancelUrl': cancel_url,
+                                'controllerStatus': controller_status_cache.snapshot(),
                             }
                         except PathSenderBusyError:
                             return jsonify({'error': 'A path transmission is already in progress'}), 409
@@ -851,6 +948,7 @@ def queue_path_transmission():
                 status_url=status_url,
                 cancel_url=cancel_url,
             )
+            controller_status_cache.set_status_url(status_url)
         except PathSenderBusyError:
             return jsonify({'error': 'A path transmission is already in progress'}), 409
 
@@ -862,6 +960,7 @@ def queue_path_transmission():
             'batchSize': job.batch_size,
             'paused': job.paused,
             'cancelUrl': cancel_url,
+            'controllerStatus': controller_status_cache.snapshot(),
         }), 200
 
     except Exception as exc:
@@ -873,9 +972,7 @@ def queue_path_transmission():
 @app.route('/api/send-path/status', methods=['GET'])
 def path_transmission_status():
     """Return status for the current or most recent path transmission job."""
-    status = path_sender.status()
-    if status is None:
-        return jsonify({'status': 'idle'}), 200
+    status = _current_job_status()
     return jsonify(status), 200
 
 
@@ -907,6 +1004,24 @@ def resume_path_transmission():
     if not job:
         return jsonify(status_payload), 200
     return jsonify(status_payload), 200
+
+
+@app.route('/api/controller/status', methods=['GET'])
+def controller_status_snapshot():
+    """Return the most recently cached controller status payload."""
+    return jsonify(controller_status_cache.snapshot()), 200
+
+
+@app.route('/api/controller/status', methods=['POST'])
+def controller_status_config():
+    """Allow clients to set or update the controller status endpoint to poll."""
+    payload = request.get_json(force=True, silent=True) or {}
+    status_url = payload.get('statusUrl') or payload.get('url')
+    if status_url and isinstance(status_url, str):
+        controller_status_cache.set_status_url(status_url.strip())
+    elif not status_url:
+        controller_status_cache.set_status_url(None)
+    return jsonify(controller_status_cache.snapshot()), 200
 
 if __name__ == '__main__':
     # Try to import required modules

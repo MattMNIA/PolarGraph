@@ -3,8 +3,9 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from './ThemeProvider';
 import { theme, getThemeClasses } from '../theme';
-import { Play, Pause, Download, Upload, Type, Palette, Settings, Eye, EyeOff, ChevronUp, Trash2, Sun, Moon } from 'lucide-react';
+import { Play, Pause, Download, Upload, Type, Palette, Settings, Eye, EyeOff, ChevronUp, Trash2, Sun, Moon, Loader2 } from 'lucide-react';
 import { buildApiUrl, fetchPathStatus } from '../utils/api';
+import { useMemo } from 'react';
 
 const CANVAS_WIDTH = 1150;
 const CANVAS_HEIGHT = 730;
@@ -18,6 +19,21 @@ const clamp = (value, min, max) => {
   }
   const upperBound = max >= min ? max : min;
   return Math.min(Math.max(value, min), upperBound);
+};
+
+const mergeJobStatus = (update, previous) => {
+  if (!update) {
+    return previous || null;
+  }
+  const base = previous ? { ...previous } : {};
+  const merged = { ...base, ...update };
+  if (!merged.status && previous?.status) {
+    merged.status = previous.status;
+  }
+  if (!merged.controllerStatus && previous?.controllerStatus) {
+    merged.controllerStatus = previous.controllerStatus;
+  }
+  return merged;
 };
 // Navbar Component
 const Navbar = ({ onOpenMotorControl }) => {
@@ -282,24 +298,26 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   const [controllerSpeed, setControllerSpeed] = useState(1800);
   const [isSendingPath, setIsSendingPath] = useState(false);
   const [pathJobStatus, setPathJobStatus] = useState(null);
+  const [pathStatusIssues, setPathStatusIssues] = useState('initial-load');
+  const [lastPathStatusAt, setLastPathStatusAt] = useState(null);
   const [pathSendError, setPathSendError] = useState(null);
   const statusPollRef = useRef(null);
 
   const applyJobStatusUpdate = useCallback((update) => {
+    if (!update) {
+      setPathJobStatus(null);
+      setLastPathStatusAt(null);
+      setPathStatusIssues('initial-load');
+      return;
+    }
     setPathJobStatus((prev) => {
-      if (!update) {
-        return null;
-      }
-      const statusValue = typeof update === 'object' ? update.status : undefined;
-      if (statusValue === 'idle') {
-        return null;
-      }
-      if (!prev) {
-        return typeof update === 'object' ? { ...update } : prev;
-      }
-      const merged = { ...prev, ...(typeof update === 'object' ? update : {}) };
-      if (!merged.status && prev.status) {
-        merged.status = prev.status;
+      const merged = mergeJobStatus(update, prev);
+      if (merged) {
+        setLastPathStatusAt(Date.now());
+        const hasHeartbeat = Boolean(merged.controllerStatus && merged.controllerStatus.status != null);
+        setPathStatusIssues(hasHeartbeat ? null : 'missing-controller-status');
+      } else {
+        setPathStatusIssues('initial-load');
       }
       return merged;
     });
@@ -312,19 +330,18 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     const pollStatus = async () => {
       try {
         const data = await fetchPathStatus(controller.signal);
-        if (!cancelled) {
-          if (!data) {
-            return;
-          }
-          if (data.status && data.status !== 'idle') {
-            applyJobStatusUpdate(data);
-          } else {
-            applyJobStatusUpdate(null);
-          }
+        if (cancelled) {
+          return;
         }
+        if (!data) {
+          setPathStatusIssues('polling-error');
+          return;
+        }
+        applyJobStatusUpdate(data);
       } catch (error) {
         if (error.name !== 'AbortError') {
           console.warn('Status poll failed:', error);
+          setPathStatusIssues('polling-error');
         }
       }
     };
@@ -531,7 +548,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     setAnimationResult(null);
 
     try {
-  const response = await fetch(buildApiUrl('/api/visualize'), {
+      const response = await fetch(buildApiUrl('/api/visualize'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -542,6 +559,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       if (!response.ok) {
         throw new Error(`Visualization failed: ${response.statusText}`);
       }
+
       const result = await response.json();
       setVisualizationResult(result);
       if (result.pathJob) {
@@ -558,7 +576,6 @@ const Whiteboard = ({ onOpenMotorControl }) => {
         console.error('Auto animation creation failed:', animationError);
         // Don't show alert for auto animation failure, just log it
       }
-
     } catch (error) {
       console.error('Visualization error:', error);
       alert('Failed to run visualization. Please check the console for details.');
@@ -584,7 +601,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
         return;
       }
 
-  const response = await fetch(buildApiUrl('/api/animation'), {
+      const response = await fetch(buildApiUrl('/api/animation'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -674,6 +691,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     }
 
     setIsSendingPath(true);
+    setPathStatusIssues('initial-load');
     setPathSendError(null);
     try {
       const response = await fetch(buildApiUrl('/api/visualize'), {
@@ -708,6 +726,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       const data = await response.json();
       if (response.ok) {
         applyJobStatusUpdate(data);
+        setPathStatusIssues('initial-load');
       }
     } catch (error) {
       console.error('Cancel transmission error:', error);
@@ -724,6 +743,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       const data = await response.json();
       if (response.ok) {
         applyJobStatusUpdate(data);
+        setPathStatusIssues('initial-load');
       }
     } catch (error) {
       console.error('Pause transmission error:', error);
@@ -740,6 +760,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       const data = await response.json();
       if (response.ok) {
         applyJobStatusUpdate(data);
+        setPathStatusIssues('initial-load');
       }
     } catch (error) {
       console.error('Resume transmission error:', error);
@@ -782,6 +803,42 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       statusPollRef.current = null;
     }
   }, [pathJobStatus?.status, applyJobStatusUpdate]);
+
+  const pathStatusOverlayMessage = useMemo(() => {
+    switch (pathStatusIssues) {
+      case 'initial-load':
+        return 'Loading latest controller job status…';
+      case 'polling-error':
+        return 'Status unavailable — waiting for the next update…';
+      case 'missing-controller-status':
+        return 'Awaiting controller heartbeat…';
+      default:
+        return null;
+    }
+  }, [pathStatusIssues]);
+
+  const pathLastUpdatedLabel = useMemo(() => {
+    if (!lastPathStatusAt) {
+      return null;
+    }
+    const date = new Date(lastPathStatusAt);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    return date.toLocaleString();
+  }, [lastPathStatusAt]);
+
+  const jobProgressPercent = useMemo(() => {
+    if (!pathJobStatus?.totalPoints || !Number.isFinite(pathJobStatus.totalPoints) || pathJobStatus.totalPoints <= 0) {
+      return 0;
+    }
+    const sent = Number(pathJobStatus.sentPoints || 0);
+    const total = Number(pathJobStatus.totalPoints);
+    if (!Number.isFinite(sent) || !Number.isFinite(total) || total <= 0) {
+      return 0;
+    }
+    return Math.min(100, Math.round((sent / total) * 100));
+  }, [pathJobStatus?.sentPoints, pathJobStatus?.totalPoints]);
 
   useEffect(() => () => {
     if (statusPollRef.current) {
@@ -1540,44 +1597,66 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                   )}
 
                   {pathJobStatus && (
-                    <div className={getThemeClasses(
-                      'p-4 rounded-lg border text-sm',
-                      { light: 'bg-gray-50 border-gray-200', dark: 'bg-gray-800 border-gray-700' },
-                      darkMode
-                    )}>
+                  <div className={getThemeClasses(
+                    'relative p-4 rounded-lg border text-sm',
+                    { light: 'bg-gray-50 border-gray-200', dark: 'bg-gray-800 border-gray-700' },
+                    darkMode
+                  )}>
+                    {pathStatusOverlayMessage && (
+                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg bg-gray-900/20 dark:bg-black/30 text-gray-900 dark:text-gray-100">
+                        <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
+                        <span className="mt-2 text-xs font-medium text-center px-4">{pathStatusOverlayMessage}</span>
+                      </div>
+                    )}
+
+                    <div className={pathStatusOverlayMessage ? 'pointer-events-none opacity-60 transition-opacity duration-200' : ''}>
                       <div className="flex flex-col gap-2">
                         <div className="flex justify-between">
-                          <span className="font-medium">Status: {pathJobStatus.status || 'unknown'}{pathJobStatus.paused ? ' (paused)' : ''}</span>
-                          {pathJobStatus.jobId && (
+                          <span className="font-medium">Status: {pathJobStatus?.status || 'idle'}{pathJobStatus?.paused ? ' (paused)' : ''}</span>
+                          {pathJobStatus?.jobId && (
                             <span className="opacity-60">Job ID: {pathJobStatus.jobId}</span>
                           )}
                         </div>
-                        {pathJobStatus.totalPoints ? (
+
+                        {pathJobStatus?.totalPoints ? (
                           <>
                             <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                               <div
                                 className="bg-blue-500 h-2 rounded-full"
-                                style={{ width: `${Math.min(100, Math.round((pathJobStatus.sentPoints || 0) / pathJobStatus.totalPoints * 100))}%` }}
-                              ></div>
+                                style={{ width: `${jobProgressPercent}%` }}
+                              />
                             </div>
                             <div className="flex justify-between text-xs opacity-75">
-                              <span>{pathJobStatus.sentPoints || 0} / {pathJobStatus.totalPoints} points</span>
-                              <span>{pathJobStatus.sentBatches || 0} / {pathJobStatus.totalBatches || 0} batches</span>
+                              <span>{pathJobStatus?.sentPoints || 0} / {pathJobStatus?.totalPoints || 0} points</span>
+                              <span>{pathJobStatus?.sentBatches || 0} / {pathJobStatus?.totalBatches || 0} batches</span>
                             </div>
                           </>
                         ) : (
-                          <p className="text-xs opacity-75">Awaiting transmission data...</p>
+                          <p className="text-xs opacity-75">Awaiting transmission data…</p>
                         )}
-                        {pathJobStatus.paused && (
+
+                        {pathJobStatus?.error && (
+                          <p className="text-xs text-red-500">Error: {pathJobStatus.error}</p>
+                        )}
+                        {pathJobStatus?.controllerStatus?.error && (
+                          <p className="text-xs text-red-500">Status poller error: {pathJobStatus.controllerStatus.error}</p>
+                        )}
+                        {pathJobStatus?.controllerStatus?.stale && (
+                          <p className="text-xs text-yellow-500 dark:text-yellow-300">Controller status is stale; awaiting refresh…</p>
+                        )}
+                        {pathJobStatus?.paused && (
                           <p className="text-xs text-yellow-500 dark:text-yellow-300">Transmission is paused. Resume to continue sending remaining batches.</p>
                         )}
-                        {pathJobStatus.error && (
-                          <p className="text-xs text-red-500">Error: {pathJobStatus.error}</p>
+                        {pathLastUpdatedLabel && (
+                          <p className="text-xs opacity-60">Last update: {pathLastUpdatedLabel}</p>
+                        )}
+                        {!pathJobStatus && (
+                          <p className="text-xs opacity-75">No active controller job yet. Send a path to see live progress.</p>
                         )}
                       </div>
                     </div>
-                  )}
-                </div>
+                  </div>
+                  )}</div>
 
               </motion.div>
             )}

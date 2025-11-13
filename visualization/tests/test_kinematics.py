@@ -2,7 +2,7 @@ from polargraph.kinematics import Polargraph
 
 
 def test_lengths_and_inverse():
-    pg = Polargraph(1150, 730)
+    pg = Polargraph(900, 550)
     points = [(100, 100), (400, 300), (799, 599), (0, 599), (400, 10)]
     for x, y in points:
         l, r = pg.lengths_for_xy(x, y)

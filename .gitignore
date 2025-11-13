@@ -113,3 +113,5 @@ dmypy.json
 local_settings.py
 db.sqlite3
 CAD/
+
+visualization/camera

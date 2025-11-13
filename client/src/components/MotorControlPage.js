@@ -11,9 +11,34 @@ const ACTION_ENDPOINTS = {
   cancel: '/api/send-path/cancel',
 };
 
+const ACTIVE_JOB_STATUSES = new Set(['pending', 'running', 'cancelling']);
+const FINAL_JOB_STATUSES = new Set(['idle', 'cancelled', 'completed', 'failed']);
+
+const normalizeFinalStatus = (payload, previous) => {
+  const controllerStatus = payload?.controllerStatus ?? previous?.controllerStatus ?? null;
+  const error = payload?.error ?? null;
+  const result = {
+    status: payload?.status || 'idle',
+    controllerStatus,
+  };
+  if (error) {
+    result.error = error;
+  }
+  if (payload?.previousJob) {
+    result.previousJob = payload.previousJob;
+  }
+  if (payload?.lastState) {
+    result.lastState = payload.lastState;
+  }
+  return result;
+};
+
 const mergeStatus = (update, previous) => {
   if (!update) {
     return previous || null;
+  }
+  if (update.status && FINAL_JOB_STATUSES.has(update.status)) {
+    return normalizeFinalStatus(update, previous);
   }
   const base = previous ? { ...previous } : {};
   const merged = { ...base, ...update };
@@ -22,6 +47,9 @@ const mergeStatus = (update, previous) => {
   }
   if (!merged.controllerStatus && previous?.controllerStatus) {
     merged.controllerStatus = previous.controllerStatus;
+  }
+  if (merged.status && FINAL_JOB_STATUSES.has(merged.status)) {
+    return normalizeFinalStatus(merged, previous);
   }
   return merged;
 };
@@ -39,8 +67,19 @@ const MotorControlPage = ({ onBack }) => {
     if (!update) {
       return;
     }
-    setStatus((prev) => mergeStatus(update, prev));
-    setLastUpdateAt(Date.now());
+    setStatus((prev) => {
+      const merged = mergeStatus(update, prev);
+      if (!merged) {
+        setStatusIssues('initial-load');
+        setLastUpdateAt(null);
+        return null;
+      }
+      const jobIsActive = merged.status ? ACTIVE_JOB_STATUSES.has(merged.status) : false;
+      const hasHeartbeat = Boolean(merged.controllerStatus && merged.controllerStatus.status != null);
+      setLastUpdateAt(Date.now());
+      setStatusIssues(jobIsActive ? (hasHeartbeat ? null : 'missing-controller-status') : null);
+      return merged;
+    });
   }, []);
 
   const fetchStatus = useCallback(
@@ -58,9 +97,7 @@ const MotorControlPage = ({ onBack }) => {
           setStatusIssues('polling-error');
           return;
         }
-        applyStatusUpdate(data);
-        const hasControllerHeartbeat = Boolean(data?.controllerStatus && data.controllerStatus.status != null);
-        setStatusIssues(hasControllerHeartbeat ? null : 'missing-controller-status');
+  applyStatusUpdate(data);
         setError(null);
         consecutiveFailureRef.current = 0;
       } catch (err) {
@@ -125,7 +162,7 @@ const MotorControlPage = ({ onBack }) => {
   const handleRefresh = useCallback(() => fetchStatus(true), [fetchStatus]);
 
   const jobStatus = status?.status || 'idle';
-  const isActive = ['pending', 'running', 'cancelling'].includes(jobStatus);
+  const isActive = ACTIVE_JOB_STATUSES.has(jobStatus);
   const canPause = isActive && !status?.paused;
   const canResume = isActive && Boolean(status?.paused);
   const canCancel = isActive || status?.paused;
@@ -134,8 +171,7 @@ const MotorControlPage = ({ onBack }) => {
     if (!status) {
       return 0;
     }
-    const activeStatuses = ['pending', 'running', 'cancelling'];
-    if (!activeStatuses.includes(status.status)) {
+    if (!ACTIVE_JOB_STATUSES.has(status.status)) {
       return 0;
     }
     if (!status.totalPoints || !Number.isFinite(status.totalPoints) || status.totalPoints <= 0) {
@@ -325,6 +361,10 @@ const MotorControlPage = ({ onBack }) => {
 
                     {controllerStale && (
                       <p className="text-xs text-yellow-600 dark:text-yellow-300">Controller status is stale; awaiting refresh…</p>
+                    )}
+
+                    {status?.status === 'idle' && status?.lastState && (
+                      <p className="text-xs opacity-70">Last job: {status.lastState}</p>
                     )}
 
                     {(startedLabel || finishedLabel || lastUpdatedLabel) && (

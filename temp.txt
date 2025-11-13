@@ -1,0 +1,21 @@
+constexpr float CONNECTION_TO_PEN_DISTANCE = 29.0f;
+
+
+
+bool computeStringLengths(float x, float y, float& leftLen, float& rightLen) {
+  if (x < 0 || y < 0) {
+    return false;
+  }
+  // Compute position of points on Gondala where the belts connect
+  float leftConnection_x = x-CONNECTION_TO_PEN_DISTANCE;
+  float rightConnection_x = x+CONNECTION_TO_PEN_DISTANCE;
+
+  // motors mounted at (0,0) and (board width, 0)
+  leftLen = sqrtf(leftConnection_x * leftConnection_x + y * y);
+  const float dx = BOARD_WIDTH_MM - rightConnection_x;
+  rightLen = sqrtf(dx * dx + y * y);
+  if (!(isfinite(leftLen) && isfinite(rightLen))) {
+    return false;
+  }
+  return true;
+}

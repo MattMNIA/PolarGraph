@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from polargraph.whiteboard_manager import WhiteboardManager
 
 
-def interactive_layout(board_width: int = 1150, board_height: int = 730):
+def interactive_layout(board_width: int = 900, board_height: int = 550):
     """Interactive mode for positioning images on the whiteboard."""
     wb = WhiteboardManager(board_width, board_height)
 
@@ -158,8 +158,8 @@ def interactive_layout(board_width: int = 1150, board_height: int = 730):
 
 def main():
     parser = argparse.ArgumentParser(description='Interactive whiteboard layout tool')
-    parser.add_argument('--board-width', type=int, default=1150)
-    parser.add_argument('--board-height', type=int, default=730)
+    parser.add_argument('--board-width', type=int, default=900)
+    parser.add_argument('--board-height', type=int, default=550)
     parser.add_argument('--interactive', action='store_true', help='Start interactive mode')
 
     args = parser.parse_args()

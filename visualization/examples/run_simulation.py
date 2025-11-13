@@ -1,7 +1,7 @@
 ﻿"""Example runner to animate a polargraph drawing from an image or a generated spiral.
 
 Usage:
-    python examples/run_simulation.py --image ../images/my_image.png --board-width 1150 --board-height 730
+    python examples/run_simulation.py --image ../images/my_image.png --board-width 900 --board-height 550
 """
 import argparse
 import math
@@ -38,8 +38,8 @@ def main():
     parser = argparse.ArgumentParser(description='Polargraph drawing simulation with multiple image support')
     parser.add_argument('--images', nargs='*', help='List of image files to draw (can specify multiple)')
     parser.add_argument('--positions', nargs='*', type=float, help='Positions for images as x,y,width,height (repeat for each image)')
-    parser.add_argument('--board-width', type=int, default=1150)
-    parser.add_argument('--board-height', type=int, default=730)
+    parser.add_argument('--board-width', type=int, default=900)
+    parser.add_argument('--board-height', type=int, default=550)
     parser.add_argument('--step-mm', type=float, default=2.0)
     parser.add_argument('--method', choices=['contour', 'hatch'], default='contour', help='Image processing method: contour or hatch')
     parser.add_argument('--spacing', type=int, default=4, help='Minimum spacing between hatch lines in pixels (for hatch method - adaptive spacing used)')

@@ -5,6 +5,9 @@
 #include <ESP32Servo.h>
 #include <math.h>
 #include <limits.h>
+#include <deque>
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 constexpr char WIFI_SSID[] = "Pataflafla";
 constexpr char WIFI_PASS[] = "(l)Rlr(r)L(l)R";
@@ -18,13 +21,14 @@ constexpr uint32_t DEFAULT_SPEED = 1200;   // steps per second
 constexpr uint16_t DEFAULT_CURRENT = 800;  // milliamps
 constexpr uint32_t MAX_SPEED = 5000;       // guard rail for mechanics
 constexpr uint8_t MIN_PULSE_US = 2;        // high/low pulse width
+constexpr uint16_t MAX_QUEUE_SIZE = 10000; // prevent memory exhaustion
 
-// Polargraph geometry configuration (calibrate on your machine)
-constexpr float BOARD_WIDTH_MM = 1150.0f;
-constexpr float BOARD_HEIGHT_MM = 730.0f;
+constexpr float BOARD_WIDTH_MM = 900.0f;
+constexpr float BOARD_HEIGHT_MM = 550.0f;
+constexpr float CONNECTION_TO_PEN_DISTANCE = 29.0f;
 constexpr uint16_t STEPS_PER_REV = 200;
-constexpr uint8_t MICROSTEPS = 16;
-constexpr float SPOOL_DIAMETER_MM = 32.0f;   // change to match actual spool
+constexpr uint8_t MICROSTEPS = 8;
+constexpr float SPOOL_DIAMETER_MM = 12.0f;
 constexpr float SPOOL_CIRCUMFERENCE_MM = SPOOL_DIAMETER_MM * PI;
 constexpr float STEPS_PER_MM = (STEPS_PER_REV * MICROSTEPS) / SPOOL_CIRCUMFERENCE_MM;
 
@@ -42,6 +46,12 @@ struct MachineState {
   int64_t right_steps;
   bool pen_down;
   bool initialized;
+};
+
+struct QueuedPoint {
+  float x, y;
+  bool penDown;
+  uint32_t speed;
 };
 
 struct MotorConfig {
@@ -64,7 +74,23 @@ MotorConfig motors[] = {
 
 WebServer server(80);
 
-MachineState machine = {0.0f, 0.0f, 0.0f, 0.0f, 0, 0, false, false};
+MachineState machine = {BOARD_WIDTH_MM/2, BOARD_HEIGHT_MM/2, 0.0f, 0.0f, 0, 0, false, false};
+
+std::deque<QueuedPoint> pointQueue;
+volatile bool isExecuting = false;
+SemaphoreHandle_t queueMutex = nullptr;
+
+static inline void lockQueue() {
+  if (queueMutex) {
+    xSemaphoreTake(queueMutex, portMAX_DELAY);
+  }
+}
+
+static inline void unlockQueue() {
+  if (queueMutex) {
+    xSemaphoreGive(queueMutex);
+  }
+}
 
 Servo penServo;
 bool servoPenDown = false;
@@ -233,9 +259,13 @@ bool computeStringLengths(float x, float y, float& leftLen, float& rightLen) {
   if (x < 0 || y < 0) {
     return false;
   }
+  // Compute position of points on Gondala where the belts connect
+  float leftConnection_x = x-CONNECTION_TO_PEN_DISTANCE;
+  float rightConnection_x = x+CONNECTION_TO_PEN_DISTANCE;
+
   // motors mounted at (0,0) and (board width, 0)
-  leftLen = sqrtf(x * x + y * y);
-  const float dx = BOARD_WIDTH_MM - x;
+  leftLen = sqrtf(leftConnection_x * leftConnection_x + y * y);
+  const float dx = BOARD_WIDTH_MM - rightConnection_x;
   rightLen = sqrtf(dx * dx + y * y);
   if (!(isfinite(leftLen) && isfinite(rightLen))) {
     return false;
@@ -246,7 +276,7 @@ bool computeStringLengths(float x, float y, float& leftLen, float& rightLen) {
 bool moveToXY(float x, float y, bool penDown, uint32_t speed) {
   float targetLeftLen = 0.0f;
   float targetRightLen = 0.0f;
-  if (!computeStringLengths(x, y, targetLeftLen, targetRightLen)) {
+  if (!computeStringLengths(x, y, targetLeftLen, targetRightLen)) {  
     Serial.printf("[MOVE] Invalid target (%.2f, %.2f) -> string lengths NaN\n", x, y);
     return false;
   }
@@ -371,6 +401,18 @@ void handleStatus() {
   steps["left"] = machine.left_steps;
   steps["right"] = machine.right_steps;
 
+  // Add queue information
+  size_t queueSizeSnapshot = 0;
+  bool executingSnapshot = false;
+  lockQueue();
+  queueSizeSnapshot = pointQueue.size();
+  executingSnapshot = isExecuting;
+  unlockQueue();
+
+  JsonObject queueInfo = doc.createNestedObject("queue");
+  queueInfo["size"] = queueSizeSnapshot;
+  queueInfo["isExecuting"] = executingSnapshot;
+
   String payload;
   serializeJson(doc, payload);
   server.send(200, "application/json", payload);
@@ -423,9 +465,16 @@ void handleCancel() {
   cancelRequested = true;
   emergencyStop();
 
+  // Clear the queue and stop execution
+  lockQueue();
+  pointQueue.clear();
+  isExecuting = false;
+  unlockQueue();
+
   StaticJsonDocument<128> response;
   response["status"] = "ok";
   response["cancelled"] = true;
+  response["queueCleared"] = true;
 
   String payload;
   serializeJson(response, payload);
@@ -464,6 +513,13 @@ void handlePath() {
                 static_cast<unsigned long>(defaultSpeed));
 
   cancelRequested = false;
+
+  if (reset) {
+    lockQueue();
+    pointQueue.clear();
+    isExecuting = false;
+    unlockQueue();
+  }
 
   if (reset || !machine.initialized) {
     JsonObject start = doc["startPosition"].as<JsonObject>();
@@ -525,9 +581,24 @@ void handlePath() {
     return;
   }
 
-  Serial.printf("[PATH] Executing %u points\n", static_cast<unsigned>(points.size()));
+  Serial.printf("[PATH] Queuing %u points\n", static_cast<unsigned>(points.size()));
 
-  uint32_t executed = 0;
+  // Check if adding these points would exceed queue limit
+  size_t existingQueued = 0;
+  lockQueue();
+  existingQueued = pointQueue.size();
+  unlockQueue();
+
+  if (existingQueued + points.size() > MAX_QUEUE_SIZE) {
+    Serial.printf("[PATH] Queue would exceed limit (%u + %u > %u)\n",
+                  static_cast<unsigned>(existingQueued),
+                  static_cast<unsigned>(points.size()),
+                  static_cast<unsigned>(MAX_QUEUE_SIZE));
+    server.send(429, "application/json", "{\"error\":\"Queue limit exceeded\"}");
+    return;
+  }
+
+  uint32_t queued = 0;
   for (JsonVariant entryVariant : points) {
     JsonObject entry = entryVariant.as<JsonObject>();
     if (entry.isNull()) {
@@ -539,63 +610,47 @@ void handlePath() {
     const bool penDown = entry.containsKey("penDown") ? entry["penDown"].as<bool>() : machine.pen_down;
     const uint32_t speed = entry["speed"] | defaultSpeed;
 
-    if (executed < 5 || executed % 500 == 0) {
-      Serial.printf("[PATH] Move %lu -> (%.2f, %.2f) pen=%s speed=%lu\n",
-                    static_cast<unsigned long>(executed),
+    // Enqueue the point
+    QueuedPoint point = {targetX, targetY, penDown, speed};
+    lockQueue();
+    pointQueue.push_back(point);
+    unlockQueue();
+    queued++;
+
+    if (queued < 5 || queued % 500 == 0) {
+      Serial.printf("[PATH] Queued %lu -> (%.2f, %.2f) pen=%s speed=%lu\n",
+                    static_cast<unsigned long>(queued),
                     targetX,
                     targetY,
                     penDown ? "down" : "up",
                     static_cast<unsigned long>(speed));
     }
-
-    if (!moveToXY(targetX, targetY, penDown, speed)) {
-      if (cancelRequested) {
-        Serial.println(F("[PATH] Cancel detected while executing move"));
-        break;
-      }
-      Serial.printf("[PATH] moveToXY failed at index %lu\n", static_cast<unsigned long>(executed));
-      server.send(422, "application/json", "{\"error\":\"Path execution failed\"}");
-      return;
-    }
-    executed++;
-
-    if (cancelRequested) {
-      Serial.println(F("[PATH] Cancel detected after move"));
-      break;
-    }
   }
 
-  if (cancelRequested) {
-    cancelRequested = false;
+  // Start execution if not already running
+  bool startedExecution = false;
+  size_t queueSizeSnapshot = 0;
+  bool executingSnapshot = false;
+  lockQueue();
+  if (!isExecuting && !pointQueue.empty()) {
+    isExecuting = true;
+    startedExecution = true;
+  }
+  queueSizeSnapshot = pointQueue.size();
+  executingSnapshot = isExecuting;
+  unlockQueue();
 
-    Serial.printf("[PATH] Transmission cancelled after %lu points\n", static_cast<unsigned long>(executed));
-
-    StaticJsonDocument<256> response;
-    response["status"] = "cancelled";
-    response["pointsProcessed"] = executed;
-    response["cancelled"] = true;
-    JsonObject state = response.createNestedObject("state");
-    state["x_mm"] = machine.x_mm;
-    state["y_mm"] = machine.y_mm;
-    state["penDown"] = machine.pen_down;
-    JsonObject stepsObj = state.createNestedObject("steps");
-    stepsObj["left"] = machine.left_steps;
-    stepsObj["right"] = machine.right_steps;
-    JsonObject lengths = state.createNestedObject("lengths_mm");
-    lengths["left"] = machine.left_len_mm;
-    lengths["right"] = machine.right_len_mm;
-
-    String payload;
-    serializeJson(response, payload);
-    server.send(200, "application/json", payload);
-    return;
+  if (startedExecution) {
+    Serial.println(F("[PATH] Starting asynchronous execution"));
   }
 
-  Serial.printf("[PATH] Completed transmission (%lu points processed)\n", static_cast<unsigned long>(executed));
+  Serial.printf("[PATH] Queued %lu points for asynchronous execution\n", static_cast<unsigned long>(queued));
 
   StaticJsonDocument<256> response;
-  response["status"] = "ok";
-  response["pointsProcessed"] = executed;
+  response["status"] = "queued";
+  response["pointsQueued"] = queued;
+  response["queueSize"] = static_cast<uint32_t>(queueSizeSnapshot);
+  response["isExecuting"] = executingSnapshot;
   JsonObject state = response.createNestedObject("state");
   state["initialized"] = machine.initialized;
   state["x_mm"] = machine.x_mm;
@@ -630,54 +685,10 @@ void setup() {
   setupDriver(driverLeft);
   setupDriver(driverRight);
 
-  penServo.attach(PEN_SERVO_PIN, 500, 2400);
-  penServo.write(PEN_UP_ANGLE);
-  servoPenDown = false;
-  delay(PEN_SERVO_SETTLE_MS);
-
-  WiFi.begin(WIFI_SSID, WIFI_PASS);
-  Serial.print("Connecting to WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
+  queueMutex = xSemaphoreCreateMutex();
+  if (queueMutex == nullptr) {
+    Serial.println(F("[SETUP] Failed to create queue mutex"));
   }
-  Serial.println();
-  Serial.print("Connected! IP: ");
-  Serial.println(WiFi.localIP());
-
-  server.on("/", handleRoot);
-  server.on("/api/status", HTTP_OPTIONS, handleCorsPreflight);
-  server.on("/api/status", HTTP_GET, handleStatus);
-  server.on("/api/move", HTTP_OPTIONS, handleCorsPreflight);
-  server.on("/api/move", HTTP_POST, handleMove);
-  server.on("/api/pen", HTTP_OPTIONS, handleCorsPreflight);
-  server.on("/api/pen", HTTP_POST, handlePen);
-  server.on("/api/path", HTTP_OPTIONS, handleCorsPreflight);
-  server.on("/api/path", HTTP_POST, handlePath);
-  server.on("/api/cancel", HTTP_OPTIONS, handleCorsPreflight);
-  server.on("/api/cancel", HTTP_POST, handleCancel);
-  server.begin();
-}
-
-void loop() {
-  server.handleClient();
-}
-void setupPins() {
-  for (auto& motor : motors) {
-    pinMode(motor.enablePin, OUTPUT);
-    pinMode(motor.dirPin, OUTPUT);
-    pinMode(motor.stepPin, OUTPUT);
-    enableMotor(motor, false);
-  }
-}
-
-void setup() {
-  Serial.begin(115200);
-  driverSerial.begin(115200, SERIAL_8N1, 16, 17);
-
-  setupPins();
-  setupDriver(driverLeft);
-  setupDriver(driverRight);
 
   penServo.attach(PEN_SERVO_PIN, 500, 2400);
   penServo.write(PEN_UP_ANGLE);
@@ -710,4 +721,59 @@ void setup() {
 
 void loop() {
   server.handleClient();
+
+  // Process queued points asynchronously
+  QueuedPoint point;
+  bool hasPoint = false;
+
+  lockQueue();
+  if (isExecuting && !pointQueue.empty()) {
+    point = pointQueue.front();
+    pointQueue.pop_front();
+    hasPoint = true;
+  }
+  unlockQueue();
+
+  if (!hasPoint) {
+    return;
+  }
+
+    Serial.printf("[QUEUE] Executing queued point -> (%.2f, %.2f) pen=%s speed=%lu\n",
+                  point.x,
+                  point.y,
+                  point.penDown ? "down" : "up",
+                  static_cast<unsigned long>(point.speed));
+
+    if (!moveToXY(point.x, point.y, point.penDown, point.speed)) {
+      Serial.println(F("[QUEUE] moveToXY failed, stopping execution"));
+      lockQueue();
+      isExecuting = false;
+      pointQueue.clear(); // Clear remaining points on error
+      unlockQueue();
+      return;
+    }
+
+    if (cancelRequested) {
+      Serial.println(F("[QUEUE] Cancel detected, stopping execution"));
+      cancelRequested = false;
+      lockQueue();
+      isExecuting = false;
+      pointQueue.clear();
+      unlockQueue();
+      return;
+    }
+
+    // If queue is empty after processing, stop executing
+    bool queueEmpty = false;
+    lockQueue();
+    queueEmpty = pointQueue.empty();
+    if (queueEmpty) {
+      isExecuting = false;
+    }
+    unlockQueue();
+
+    if (queueEmpty) {
+      Serial.println(F("[QUEUE] Queue empty, execution complete"));
+    }
+}
 }

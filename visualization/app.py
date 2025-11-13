@@ -41,7 +41,7 @@ app = Flask(__name__, static_folder="../client/build", static_url_path="/")
 if CORS:
     CORS(app)  # Enable CORS for all routes
 
-path_sender = PathSender(batch_size=100)
+path_sender = PathSender(batch_size=200)
 
 
 class ControllerStatusPoller:
@@ -324,8 +324,8 @@ def visualize():
         images = data.get('images', [])
         positions = data.get('positions', [])
         text_elements = data.get('textElements', [])
-        board_width = data.get('boardWidth', 1150)
-        board_height = data.get('boardHeight', 730)
+        board_width = data.get('boardWidth', 900)
+        board_height = data.get('boardHeight', 550)
         method = data.get('method', 'contour')
         spacing = data.get('spacing', 4)
         adaptive = data.get('adaptive', True)
@@ -670,8 +670,8 @@ def create_animation():
         images = data.get('images', [])
         positions = data.get('positions', [])
         text_elements = data.get('textElements', [])
-        board_width = data.get('boardWidth', 1150)
-        board_height = data.get('boardHeight', 730)
+        board_width = data.get('boardWidth', 900)
+        board_height = data.get('boardHeight', 550)
         method = data.get('method', 'contour')
         spacing = data.get('spacing', 4)
         adaptive = data.get('adaptive', False)

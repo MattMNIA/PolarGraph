@@ -7,8 +7,8 @@ import { Play, Pause, Download, Upload, Type, Palette, Settings, Eye, EyeOff, Ch
 import { buildApiUrl, fetchPathStatus } from '../utils/api';
 import { useMemo } from 'react';
 
-const CANVAS_WIDTH = 1150;
-const CANVAS_HEIGHT = 730;
+const CANVAS_WIDTH = 900;
+const CANVAS_HEIGHT = 550;
 const MIN_ELEMENT_WIDTH = 1;
 const MIN_ELEMENT_HEIGHT = 1;
 const RESIZE_MIN_WIDTH = 50;
@@ -21,9 +21,34 @@ const clamp = (value, min, max) => {
   return Math.min(Math.max(value, min), upperBound);
 };
 
+const ACTIVE_JOB_STATUSES = new Set(['pending', 'running', 'cancelling']);
+const FINAL_JOB_STATUSES = new Set(['idle', 'cancelled', 'completed', 'failed']);
+
+const normalizeFinalJobStatus = (payload, previous) => {
+  const controllerStatus = payload?.controllerStatus ?? previous?.controllerStatus ?? null;
+  const error = payload?.error ?? null;
+  const result = {
+    status: payload?.status || 'idle',
+    controllerStatus,
+  };
+  if (error) {
+    result.error = error;
+  }
+  if (payload?.previousJob) {
+    result.previousJob = payload.previousJob;
+  }
+  if (payload?.lastState) {
+    result.lastState = payload.lastState;
+  }
+  return result;
+};
+
 const mergeJobStatus = (update, previous) => {
   if (!update) {
     return previous || null;
+  }
+  if (update.status && FINAL_JOB_STATUSES.has(update.status)) {
+    return normalizeFinalJobStatus(update, previous);
   }
   const base = previous ? { ...previous } : {};
   const merged = { ...base, ...update };
@@ -32,6 +57,9 @@ const mergeJobStatus = (update, previous) => {
   }
   if (!merged.controllerStatus && previous?.controllerStatus) {
     merged.controllerStatus = previous.controllerStatus;
+  }
+  if (merged.status && FINAL_JOB_STATUSES.has(merged.status)) {
+    return normalizeFinalJobStatus(merged, previous);
   }
   return merged;
 };
@@ -312,13 +340,15 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     }
     setPathJobStatus((prev) => {
       const merged = mergeJobStatus(update, prev);
-      if (merged) {
-        setLastPathStatusAt(Date.now());
-        const hasHeartbeat = Boolean(merged.controllerStatus && merged.controllerStatus.status != null);
-        setPathStatusIssues(hasHeartbeat ? null : 'missing-controller-status');
-      } else {
+      if (!merged) {
         setPathStatusIssues('initial-load');
+        setLastPathStatusAt(null);
+        return null;
       }
+      const jobIsActive = merged.status ? ACTIVE_JOB_STATUSES.has(merged.status) : false;
+      const hasHeartbeat = Boolean(merged.controllerStatus && merged.controllerStatus.status != null);
+      setLastPathStatusAt(Date.now());
+      setPathStatusIssues(jobIsActive ? (hasHeartbeat ? null : 'missing-controller-status') : null);
       return merged;
     });
   }, []);
@@ -829,7 +859,10 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   }, [lastPathStatusAt]);
 
   const jobProgressPercent = useMemo(() => {
-    if (!pathJobStatus?.totalPoints || !Number.isFinite(pathJobStatus.totalPoints) || pathJobStatus.totalPoints <= 0) {
+    if (!pathJobStatus || !ACTIVE_JOB_STATUSES.has(pathJobStatus.status)) {
+      return 0;
+    }
+    if (!pathJobStatus.totalPoints || !Number.isFinite(pathJobStatus.totalPoints) || pathJobStatus.totalPoints <= 0) {
       return 0;
     }
     const sent = Number(pathJobStatus.sentPoints || 0);
@@ -1524,7 +1557,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                         disabled={
                           isSendingPath ||
                           elements.length === 0 ||
-                          ['pending', 'running', 'cancelling'].includes(pathJobStatus?.status)
+                          ACTIVE_JOB_STATUSES.has(pathJobStatus?.status)
                         }
                         className={getThemeClasses(
                           theme.styles.button.primary.base + ' flex items-center gap-2 px-4 py-2 text-sm font-medium',
@@ -1596,12 +1629,13 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                     <p className="text-sm text-red-500">{pathSendError}</p>
                   )}
 
-                  {pathJobStatus && (
-                  <div className={getThemeClasses(
-                    'relative p-4 rounded-lg border text-sm',
-                    { light: 'bg-gray-50 border-gray-200', dark: 'bg-gray-800 border-gray-700' },
-                    darkMode
-                  )}>
+                  <div
+                    className={getThemeClasses(
+                      'relative p-4 rounded-lg border text-sm',
+                      { light: 'bg-gray-50 border-gray-200', dark: 'bg-gray-800 border-gray-700' },
+                      darkMode
+                    )}
+                  >
                     {pathStatusOverlayMessage && (
                       <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg bg-gray-900/20 dark:bg-black/30 text-gray-900 dark:text-gray-100">
                         <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
@@ -1644,19 +1678,23 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                         {pathJobStatus?.controllerStatus?.stale && (
                           <p className="text-xs text-yellow-500 dark:text-yellow-300">Controller status is stale; awaiting refresh…</p>
                         )}
+                        {pathJobStatus?.status === 'idle' && pathJobStatus?.lastState && (
+                          <p className="text-xs opacity-75">Last job: {pathJobStatus.lastState}</p>
+                        )}
                         {pathJobStatus?.paused && (
                           <p className="text-xs text-yellow-500 dark:text-yellow-300">Transmission is paused. Resume to continue sending remaining batches.</p>
                         )}
-                        {pathLastUpdatedLabel && (
-                          <p className="text-xs opacity-60">Last update: {pathLastUpdatedLabel}</p>
-                        )}
+
+                        <p className="text-xs opacity-60">
+                          {pathLastUpdatedLabel ? `Last update: ${pathLastUpdatedLabel}` : 'No updates received yet.'}
+                        </p>
                         {!pathJobStatus && (
                           <p className="text-xs opacity-75">No active controller job yet. Send a path to see live progress.</p>
                         )}
                       </div>
                     </div>
                   </div>
-                  )}</div>
+                </div>
 
               </motion.div>
             )}

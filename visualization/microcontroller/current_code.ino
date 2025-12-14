@@ -18,10 +18,11 @@ constexpr uint8_t DRIVER_ADDR_LEFT = 0b00;
 constexpr uint8_t DRIVER_ADDR_RIGHT = 0b01;
 
 // SAFETY/SMOOTHNESS TWEAKS
-constexpr uint32_t DEFAULT_SPEED = 500;     
+constexpr uint32_t DEFAULT_SPEED = 5000;     
+constexpr uint32_t TRAVEL_SPEED = 12000;    // Faster speed for pen-up moves
 constexpr uint16_t DEFAULT_CURRENT = 800;  
-constexpr uint32_t MAX_SPEED = 2000;        
-constexpr uint8_t MIN_PULSE_US = 50;         
+constexpr uint32_t MAX_SPEED = 30000;       // Increased max speed
+constexpr uint8_t MIN_PULSE_US = 10;        // Reduced min pulse for higher speeds
 constexpr uint16_t MAX_QUEUE_SIZE = 3000;   
 
 // MACHINE GEOMETRY & RESOLUTION
@@ -335,7 +336,15 @@ bool moveToXY(float x, float y, bool penDown, uint32_t speed) {
 
     applyPenState(penDown);
 
-    if (!runDualMotorSteps(static_cast<int32_t>(leftDelta), static_cast<int32_t>(rightDelta), speed)) {
+    // If pen is UP, use a faster travel speed unless a specific speed was requested that is higher
+    uint32_t effectiveSpeed = speed;
+    if (!penDown) {
+        effectiveSpeed = max(speed, TRAVEL_SPEED);
+    }
+
+    // Serial.printf("MoveToXY: (%.2f, %.2f) pen=%d speed=%u effective=%u\n", x, y, penDown, speed, effectiveSpeed);
+
+    if (!runDualMotorSteps(static_cast<int32_t>(leftDelta), static_cast<int32_t>(rightDelta), effectiveSpeed)) {
         return false;
     }
 
@@ -531,6 +540,7 @@ void handlePath() {
 
     const bool reset = doc["reset"] | false;
     const uint32_t defaultSpeed = doc["speed"] | DEFAULT_SPEED;
+    Serial.printf("[PATH] Received path. Reset=%s, Speed=%u\n", reset ? "yes" : "no", defaultSpeed);
 
     cancelRequested = false;
 

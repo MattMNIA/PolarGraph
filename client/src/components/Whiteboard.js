@@ -323,7 +323,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   const [isCreatingAnimation, setIsCreatingAnimation] = useState(false);
   const [animationController, setAnimationController] = useState(null);
   const [controllerUrl, setControllerUrl] = useState('http://192.168.50.95');
-  const [controllerSpeed, setControllerSpeed] = useState(1800);
+  const [controllerSpeed, setControllerSpeed] = useState(9000);
   const [isSendingPath, setIsSendingPath] = useState(false);
   const [pathJobStatus, setPathJobStatus] = useState(null);
   const [pathStatusIssues, setPathStatusIssues] = useState('initial-load');

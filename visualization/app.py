@@ -161,10 +161,7 @@ def _normalize_transmission_points(raw_points):
 def _derive_start_position(explicit_start, points):
     if isinstance(explicit_start, dict) and 'x' in explicit_start and 'y' in explicit_start:
         return {'x': float(explicit_start['x']), 'y': float(explicit_start['y'])}
-    if not points:
-        return None
-    first_point = points[0]
-    return {'x': first_point['x'], 'y': first_point['y']}
+    return None
 
 
 def _derive_status_url(controller_url: Optional[str], explicit_status_url: Optional[str] = None) -> Optional[str]:

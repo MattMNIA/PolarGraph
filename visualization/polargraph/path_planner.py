@@ -8,7 +8,7 @@ import math
 Point = Tuple[float, float]
 
 
-def plan_linear_path(points: List[Point], step_mm: float = .05) -> List[Point]:
+def plan_linear_path(points: List[Point], step_mm: float = .01) -> List[Point]:
     """Given a series of anchor points, interpolate linearly between them with spacing approx step_mm.
 
     Returns a flat list of points including the anchors.
@@ -35,7 +35,7 @@ def plan_linear_path(points: List[Point], step_mm: float = .05) -> List[Point]:
     return out
 
 
-def plan_pen_aware_path(path: Union[List[Point], List[List[Point]]], pen_up_threshold_mm: float = 10.0, step_mm: float = .05) -> List[Tuple[float, float, bool]]:
+def plan_pen_aware_path(path: Union[List[Point], List[List[Point]]], pen_up_threshold_mm: float = 10.0, step_mm: float = .01) -> List[Tuple[float, float, bool]]:
     """Create a path that includes pen-up/pen-down states.
 
     Input may be either a flat list of points (continuous drawing) or a list of segments
@@ -147,7 +147,7 @@ def optimize_path_directions(paths):
         current_end = paths[i][-1]
 
 
-def combine_image_paths(image_path_sets: List[List[List[Point]]], step_mm: float = .05) -> List[Tuple[float, float, bool]]:
+def combine_image_paths(image_path_sets: List[List[List[Point]]], step_mm: float = .01) -> List[Tuple[float, float, bool]]:
     """Combine paths from multiple images into a single optimized path.
 
     Args:

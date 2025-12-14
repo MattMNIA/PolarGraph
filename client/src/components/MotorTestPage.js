@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 
-const defaultControllerUrl = 'http://192.168.50.5';
+const defaultControllerUrl = 'http://192.168.50.95';
 const motors = [
   { id: 'left', label: 'Left Motor' },
   { id: 'right', label: 'Right Motor' },

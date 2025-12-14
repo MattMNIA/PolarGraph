@@ -1,4 +1,4 @@
-$url = "http://192.168.50.5/api/path"
+$url = "http://192.168.50.95/api/path"
 
 $body = @'
 {

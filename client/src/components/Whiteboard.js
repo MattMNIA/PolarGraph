@@ -9,6 +9,16 @@ import { useMemo } from 'react';
 
 const CANVAS_WIDTH = 900;
 const CANVAS_HEIGHT = 550;
+const BOARD_WIDTH_MM = 1150;
+const BOARD_HEIGHT_MM = 730;
+const MARGIN_MM = 100;
+
+const SCALE_X = BOARD_WIDTH_MM / CANVAS_WIDTH;
+const SCALE_Y = BOARD_HEIGHT_MM / CANVAS_HEIGHT;
+
+const MARGIN_X_PX = MARGIN_MM / SCALE_X;
+const MARGIN_Y_PX = MARGIN_MM / SCALE_Y;
+
 const MIN_ELEMENT_WIDTH = 1;
 const MIN_ELEMENT_HEIGHT = 1;
 const RESIZE_MIN_WIDTH = 50;
@@ -221,21 +231,23 @@ const Whiteboard = ({ onOpenMotorControl }) => {
 
           const scaledWidth = Math.round(img.width * scale);
           const scaledHeight = Math.round(img.height * scale);
-          const constrainedWidth = clamp(scaledWidth, MIN_ELEMENT_WIDTH, CANVAS_WIDTH);
-          const constrainedHeight = clamp(scaledHeight, MIN_ELEMENT_HEIGHT, CANVAS_HEIGHT);
+          const constrainedWidth = clamp(scaledWidth, MIN_ELEMENT_WIDTH, CANVAS_WIDTH - MARGIN_X_PX * 2);
+          const constrainedHeight = clamp(scaledHeight, MIN_ELEMENT_HEIGHT, CANVAS_HEIGHT - MARGIN_Y_PX * 2);
 
-          const margin = 50;
-          const maxX = Math.max(0, maxCanvasWidth - constrainedWidth);
-          const maxY = Math.max(0, maxCanvasHeight - constrainedHeight);
-          const randomX = margin + Math.random() * Math.max(0, maxX - margin * 2);
-          const randomY = margin + Math.random() * Math.max(0, maxY - margin * 2);
+          const minX = MARGIN_X_PX;
+          const minY = MARGIN_Y_PX;
+          const maxX = Math.max(minX, maxCanvasWidth - MARGIN_X_PX - constrainedWidth);
+          const maxY = Math.max(minY, maxCanvasHeight - MARGIN_Y_PX - constrainedHeight);
+          
+          const randomX = minX + Math.random() * Math.max(0, maxX - minX);
+          const randomY = minY + Math.random() * Math.max(0, maxY - minY);
 
           const newElement = {
             id: Date.now(),
             type: 'image',
             src: e.target.result,
-            x: clamp(randomX, 0, maxX),
-            y: clamp(randomY, 0, maxY),
+            x: clamp(randomX, minX, maxX),
+            y: clamp(randomY, minY, maxY),
             width: constrainedWidth,
             height: constrainedHeight,
             originalWidth: img.width,
@@ -256,10 +268,14 @@ const Whiteboard = ({ onOpenMotorControl }) => {
 
   const addTextElement = () => {
     if (textInput.trim()) {
-      const width = clamp(Math.max(textInput.length * fontSize * 0.6, 150), MIN_ELEMENT_WIDTH, CANVAS_WIDTH);
-      const height = clamp(fontSize + 20, MIN_ELEMENT_HEIGHT, CANVAS_HEIGHT);
-      const maxX = Math.max(0, CANVAS_WIDTH - width);
-      const maxY = Math.max(0, CANVAS_HEIGHT - height);
+      const width = clamp(Math.max(textInput.length * fontSize * 0.6, 150), MIN_ELEMENT_WIDTH, CANVAS_WIDTH - MARGIN_X_PX * 2);
+      const height = clamp(fontSize + 20, MIN_ELEMENT_HEIGHT, CANVAS_HEIGHT - MARGIN_Y_PX * 2);
+      
+      const minX = MARGIN_X_PX;
+      const minY = MARGIN_Y_PX;
+      const maxX = Math.max(minX, CANVAS_WIDTH - MARGIN_X_PX - width);
+      const maxY = Math.max(minY, CANVAS_HEIGHT - MARGIN_Y_PX - height);
+      
       const newElement = {
         id: Date.now(),
         type: 'text',
@@ -270,8 +286,8 @@ const Whiteboard = ({ onOpenMotorControl }) => {
         isItalic,
         color: selectedColor,
         textRenderingStyle,
-        x: clamp(Math.random() * 300 + 50, 0, maxX),
-        y: clamp(Math.random() * 200 + 50, 0, maxY),
+        x: clamp(Math.random() * 300 + 50 + minX, minX, maxX),
+        y: clamp(Math.random() * 200 + 50 + minY, minY, maxY),
         width,
         height,
       };
@@ -287,13 +303,16 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       }
 
       const next = { ...el, ...updates };
-      next.width = clamp(next.width, MIN_ELEMENT_WIDTH, CANVAS_WIDTH);
-      next.height = clamp(next.height, MIN_ELEMENT_HEIGHT, CANVAS_HEIGHT);
+      next.width = clamp(next.width, MIN_ELEMENT_WIDTH, CANVAS_WIDTH - MARGIN_X_PX * 2);
+      next.height = clamp(next.height, MIN_ELEMENT_HEIGHT, CANVAS_HEIGHT - MARGIN_Y_PX * 2);
 
-      const maxX = CANVAS_WIDTH - next.width;
-      const maxY = CANVAS_HEIGHT - next.height;
-      next.x = clamp(next.x, 0, maxX);
-      next.y = clamp(next.y, 0, maxY);
+      const minX = MARGIN_X_PX;
+      const minY = MARGIN_Y_PX;
+      const maxX = CANVAS_WIDTH - MARGIN_X_PX - next.width;
+      const maxY = CANVAS_HEIGHT - MARGIN_Y_PX - next.height;
+      
+      next.x = clamp(next.x, minX, maxX);
+      next.y = clamp(next.y, minY, maxY);
 
       return next;
     }));
@@ -433,11 +452,13 @@ const Whiteboard = ({ onOpenMotorControl }) => {
 
       const element = elements.find((el) => el.id === dragging);
       if (element) {
-        const maxX = CANVAS_WIDTH - element.width;
-        const maxY = CANVAS_HEIGHT - element.height;
+        const minX = MARGIN_X_PX;
+        const minY = MARGIN_Y_PX;
+        const maxX = CANVAS_WIDTH - MARGIN_X_PX - element.width;
+        const maxY = CANVAS_HEIGHT - MARGIN_Y_PX - element.height;
         updateElement(dragging, {
-          x: Math.max(0, Math.min(maxX, mouseX)),
-          y: Math.max(0, Math.min(maxY, mouseY)),
+          x: Math.max(minX, Math.min(maxX, mouseX)),
+          y: Math.max(minY, Math.min(maxY, mouseY)),
         });
       }
     } else if (resizing) {
@@ -449,8 +470,8 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       const deltaX = (e.clientX - resizeStart.x) * scaleX;
       const deltaY = (e.clientY - resizeStart.y) * scaleY;
 
-      const maxWidth = CANVAS_WIDTH - element.x;
-      const maxHeight = CANVAS_HEIGHT - element.y;
+      const maxWidth = CANVAS_WIDTH - MARGIN_X_PX - element.x;
+      const maxHeight = CANVAS_HEIGHT - MARGIN_Y_PX - element.y;
 
       if (uniformScaling) {
         const aspectRatio = resizeStart.aspectRatio || 1;
@@ -537,11 +558,8 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       return null;
     }
 
-    // Physical board dimensions
-    const BOARD_WIDTH_MM = 1150;
-    const BOARD_HEIGHT_MM = 730;
-    const scaleX = BOARD_WIDTH_MM / CANVAS_WIDTH;
-    const scaleY = BOARD_HEIGHT_MM / CANVAS_HEIGHT;
+    const scaleX = SCALE_X;
+    const scaleY = SCALE_Y;
 
     const positions = [];
     const imagePaths = [];
@@ -1299,6 +1317,16 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                     files.forEach(file => processImageFile(file));
                   }}
                 >
+                {/* Safe Zone Indicator */}
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    borderWidth: `${MARGIN_Y_PX}px ${MARGIN_X_PX}px`,
+                    borderColor: 'rgba(255, 0, 0, 0.1)',
+                    borderStyle: 'solid',
+                    zIndex: 0,
+                  }}
+                />
                 <AnimatePresence>
                   {elements
                     .sort((a, b) => {

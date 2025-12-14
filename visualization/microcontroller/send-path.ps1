@@ -1,24 +1,12 @@
-$url = "http://192.168.50.5/api/path"
+$url = "http://192.168.50.95/api/path"
 
 $body = @'
 {
   "reset": true,
   "speed": 1800,
-  "startPosition": { "x": 220, "y": 180 },
+  "startPosition": { "x": 575, "y": 365 },
   "points": [
-    { "x": 220, "y": 180, "penDown": false },
-    { "x": 260, "y": 220, "penDown": false },
-    { "x": 260, "y": 220, "penDown": true },
-    { "x": 410, "y": 220, "penDown": true },
-    { "x": 410, "y": 370, "penDown": true },
-    { "x": 260, "y": 370, "penDown": true },
-    { "x": 260, "y": 220, "penDown": true },
-    { "x": 260, "y": 220, "penDown": false },
-    { "x": 440, "y": 200, "penDown": false },
-    { "x": 440, "y": 200, "penDown": true },
-    { "x": 500, "y": 270, "penDown": true },
-    { "x": 560, "y": 220, "penDown": true },
-    { "x": 560, "y": 220, "penDown": false }
+    { "x": 775, "y": 365, "penDown": true }
   ]
 }
 '@

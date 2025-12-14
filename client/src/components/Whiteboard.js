@@ -322,7 +322,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   const [animationResult, setAnimationResult] = useState(null);
   const [isCreatingAnimation, setIsCreatingAnimation] = useState(false);
   const [animationController, setAnimationController] = useState(null);
-  const [controllerUrl, setControllerUrl] = useState('http://192.168.50.5');
+  const [controllerUrl, setControllerUrl] = useState('http://192.168.50.95');
   const [controllerSpeed, setControllerSpeed] = useState(1800);
   const [isSendingPath, setIsSendingPath] = useState(false);
   const [pathJobStatus, setPathJobStatus] = useState(null);
@@ -517,15 +517,21 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       return null;
     }
 
+    // Physical board dimensions
+    const BOARD_WIDTH_MM = 1150;
+    const BOARD_HEIGHT_MM = 730;
+    const scaleX = BOARD_WIDTH_MM / CANVAS_WIDTH;
+    const scaleY = BOARD_HEIGHT_MM / CANVAS_HEIGHT;
+
     const positions = [];
     const imagePaths = [];
     const textData = [];
 
     imageElements.forEach(element => {
-      const x = Math.round(element.x);
-      const y = Math.round(element.y);
-      const width = Math.round(element.width);
-      const height = Math.round(element.height);
+      const x = Math.round(element.x * scaleX);
+      const y = Math.round(element.y * scaleY);
+      const width = Math.round(element.width * scaleX);
+      const height = Math.round(element.height * scaleY);
 
       positions.push(x, y, width, height);
       imagePaths.push(element.src);
@@ -534,11 +540,11 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     textElements.forEach(element => {
       textData.push({
         text: element.text,
-        x: Math.round(element.x),
-        y: Math.round(element.y),
-        width: Math.round(element.width),
-        height: Math.round(element.height),
-        fontSize: element.fontSize,
+        x: Math.round(element.x * scaleX),
+        y: Math.round(element.y * scaleY),
+        width: Math.round(element.width * scaleX),
+        height: Math.round(element.height * scaleY),
+        fontSize: Math.round(element.fontSize * scaleY),
         fontFamily: element.fontFamily,
         isBold: element.isBold,
         isItalic: element.isItalic,
@@ -551,8 +557,8 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       images: imagePaths,
       positions,
       textElements: textData,
-      boardWidth: CANVAS_WIDTH,
-      boardHeight: CANVAS_HEIGHT,
+      boardWidth: BOARD_WIDTH_MM,
+      boardHeight: BOARD_HEIGHT_MM,
       method: drawingMethod,
       spacing: hatchSpacing,
       adaptive: adaptiveHatching,

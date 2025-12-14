@@ -13,7 +13,6 @@ import requests
 ACTIVE_JOB_STATUSES = {"pending", "running", "cancelling"}
 FINAL_JOB_STATUSES = {"completed", "cancelled", "failed"}
 
-
 @dataclass
 class PathSendJob:
     """Represents an in-flight microcontroller transmission job."""
@@ -163,13 +162,35 @@ class PathSender:
         if not points:
             raise ValueError("points must not be empty")
 
-        job_points = [self._normalize_point(pt) for pt in points]
+        normalized = [self._normalize_point(pt) for pt in points]
+
+        # Build a path that starts with a single pen-up travel point to the first target.
+        job_points: List[dict] = []
+        if normalized:
+            first = normalized[0]
+            travel = {"x": first["x"], "y": first["y"], "penDown": False}
+            job_points.append(travel)
+            # Always keep the user points after the travel to ensure we draw what was requested.
+            job_points.extend(normalized)
+        else:
+            job_points = normalized
+
+        # If caller did not supply a start_position, prefer live controller state; otherwise require caller to specify.
+        derived_start = start_position
+        if derived_start is None:
+            controller_state = self._get_controller_state(status_url)
+            if controller_state is not None:
+                derived_start = controller_state
+            elif job_points:
+                # Without controller state we cannot safely assume the gondola is already at the first point; ask for an explicit start.
+                raise ValueError("start_position required (or provide a reachable status_url so we can read controller state)")
+
         job = PathSendJob(
             job_id=str(uuid.uuid4()),
             controller_url=controller_url.rstrip("/"),
             status_url=status_url.rstrip("/") if status_url else None,
             cancel_url=cancel_url.rstrip("/") if cancel_url else None,
-            start_position=start_position,
+            start_position=derived_start,
             speed=max(1, int(speed)),
             reset=reset,
             points=job_points,
@@ -270,6 +291,27 @@ class PathSender:
         }
         return result
 
+    def _get_controller_state(self, status_url: Optional[str]) -> Optional[dict]:
+        """Fetch current controller position (absolute board coords) if status_url is available."""
+
+        if not status_url:
+            return None
+        try:
+            resp = self._session.get(status_url, timeout=self.timeout)
+            resp.raise_for_status()
+            payload = self._extract_status_payload(resp)
+            if not isinstance(payload, dict):
+                return None
+            state = payload.get("state")
+            if not isinstance(state, dict):
+                return None
+            sx = float(state.get("x_mm", 0.0))
+            sy = float(state.get("y_mm", 0.0))
+            pen = bool(state.get("penDown", False))
+            return {"x": sx, "y": sy, "penDown": pen}
+        except (requests.RequestException, ValueError, TypeError):
+            return None
+
     def _run_job(self, job: PathSendJob) -> None:
         try:
             job.mark_running()
@@ -343,7 +385,10 @@ class PathSender:
             "speed": job.speed,
             "points": batch,
         }
-        if first_batch and job.start_position:
+        # Only send startPosition if this is the very first batch AND we are resetting.
+        # If we send startPosition in later batches, the firmware might re-initialize its coordinates
+        # to the start position, causing it to "teleport" back to start and overshoot on the next move.
+        if first_batch and job.reset and job.start_position:
             payload["startPosition"] = job.start_position
         return payload
 
@@ -351,6 +396,10 @@ class PathSender:
         remaining = len(job.points) - job.sent_points
         if remaining <= 0:
             return 0
+
+        # First batch must only contain the single travel-to-start point.
+        if first_batch:
+            return 1
 
         status_payload = self._last_status_payload if isinstance(self._last_status_payload, dict) else None
         queue_info = status_payload.get("queue") if status_payload else None

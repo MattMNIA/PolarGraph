@@ -391,7 +391,8 @@ def visualize():
                 board_img = np.ones((board_height, board_width, 3), dtype=np.uint8) * 255
 
                 # Process each image and text element using the selected method and collect all paths
-                all_image_paths = []
+                all_contour_paths = []
+                all_hatch_paths = []
                 total_path_length = 0
 
                 # Process image elements
@@ -404,6 +405,9 @@ def visualize():
                         pixel_paths, paths, intermediates = image_to_contour_paths(
                             image_path, board_width, board_height, x, y, width, height
                         )
+                        if paths:
+                            all_contour_paths.append(paths)
+                            total_path_length += sum(len(path) for path in paths)
                     elif method == 'hatch':
                         # For hatch mode, get both contour and hatch paths
                         pixel_paths_contour, paths_contour, intermediates_contour = image_to_contour_paths(
@@ -412,8 +416,14 @@ def visualize():
                         pixel_paths_hatch, paths_hatch, intermediates_hatch = image_to_hatch_paths(
                             image_path, board_width, board_height, x, y, width, height, spacing=spacing, adaptive=adaptive
                         )
-                        # Combine contour and hatch paths
-                        paths = paths_contour + paths_hatch if paths_contour and paths_hatch else (paths_contour or paths_hatch or [])
+                        
+                        if paths_contour:
+                            all_contour_paths.append(paths_contour)
+                            total_path_length += sum(len(path) for path in paths_contour)
+                        if paths_hatch:
+                            all_hatch_paths.append(paths_hatch)
+                            total_path_length += sum(len(path) for path in paths_hatch)
+                            
                         pixel_paths = pixel_paths_contour  # Use contour pixel paths for consistency
                         intermediates = intermediates_contour  # Use contour intermediates for consistency
                     else:
@@ -421,10 +431,9 @@ def visualize():
                         pixel_paths, paths, intermediates = image_to_contour_paths(
                             image_path, board_width, board_height, x, y, width, height
                         )
-
-                    if paths:
-                        all_image_paths.append(paths)
-                        total_path_length += sum(len(path) for path in paths)
+                        if paths:
+                            all_contour_paths.append(paths)
+                            total_path_length += sum(len(path) for path in paths)
 
                 # Process text elements - convert each text to paths
                 for text_element in text_elements:
@@ -491,7 +500,7 @@ def visualize():
                     text_img = np.array(pil_text_img)
 
                     # Save temporary text image
-                    text_temp_path = os.path.join(temp_dir, f'text_{len(all_image_paths)}.png')
+                    text_temp_path = os.path.join(temp_dir, f'text_{len(all_contour_paths) + len(all_hatch_paths)}.png')
                     cv2.imwrite(text_temp_path, text_img)
 
                     # Process text image to paths using the element's position and size
@@ -500,7 +509,7 @@ def visualize():
                     )
 
                     if paths:
-                        all_image_paths.append(paths)
+                        all_contour_paths.append(paths)
                         total_path_length += sum(len(path) for path in paths)
 
                 # Initialize preview variables
@@ -510,8 +519,13 @@ def visualize():
                 job_info = None
 
                 # Combine all paths from all images
-                if all_image_paths:
-                    combined_path = combine_image_paths(all_image_paths)
+                combined_path = []
+                if all_contour_paths:
+                    combined_path.extend(combine_image_paths(all_contour_paths))
+                if all_hatch_paths:
+                    combined_path.extend(combine_image_paths(all_hatch_paths))
+
+                if combined_path:
                     path_points = _flatten_path_for_transmission(combined_path)
 
                     # Draw only the pen-down paths (exclude travel paths)
@@ -701,7 +715,8 @@ def create_animation():
                 from PIL import Image, ImageDraw, ImageFont
 
                 # Process each image using the selected method
-                all_image_paths = []
+                all_contour_paths = []
+                all_hatch_paths = []
                 for i, image_path in enumerate(image_paths):
                     pos_idx = i * 4
                     x, y, width, height = positions[pos_idx:pos_idx+4]
@@ -710,6 +725,8 @@ def create_animation():
                         pixel_paths, paths, intermediates = image_to_contour_paths(
                             image_path, board_width, board_height, x, y, width, height
                         )
+                        if paths:
+                            all_contour_paths.append(paths)
                     elif method == 'hatch':
                         pixel_paths_contour, paths_contour, intermediates_contour = image_to_contour_paths(
                             image_path, board_width, board_height, x, y, width, height
@@ -717,14 +734,16 @@ def create_animation():
                         pixel_paths_hatch, paths_hatch, intermediates_hatch = image_to_hatch_paths(
                             image_path, board_width, board_height, x, y, width, height, spacing=spacing, adaptive=adaptive
                         )
-                        paths = paths_contour + paths_hatch if paths_contour and paths_hatch else (paths_contour or paths_hatch or [])
+                        if paths_contour:
+                            all_contour_paths.append(paths_contour)
+                        if paths_hatch:
+                            all_hatch_paths.append(paths_hatch)
                     else:
                         pixel_paths, paths, intermediates = image_to_contour_paths(
                             image_path, board_width, board_height, x, y, width, height
                         )
-
-                    if paths:
-                        all_image_paths.append(paths)
+                        if paths:
+                            all_contour_paths.append(paths)
 
                 # Process text elements - convert each text to paths
                 for text_element in text_elements:
@@ -791,7 +810,7 @@ def create_animation():
                     text_img = np.array(pil_text_img)
 
                     # Save temporary text image
-                    text_temp_path = os.path.join(temp_dir, f'text_{len(all_image_paths)}.png')
+                    text_temp_path = os.path.join(temp_dir, f'text_{len(all_contour_paths) + len(all_hatch_paths)}.png')
                     cv2.imwrite(text_temp_path, text_img)
 
                     # Process text image to paths using the element's position and size
@@ -800,13 +819,17 @@ def create_animation():
                     )
 
                     if paths:
-                        all_image_paths.append(paths)
+                        all_contour_paths.append(paths)
 
-                if not all_image_paths:
+                if not all_contour_paths and not all_hatch_paths:
                     return jsonify({'error': 'No paths found'}), 400
 
                 # Combine all paths
-                combined_path = combine_image_paths(all_image_paths)
+                combined_path = []
+                if all_contour_paths:
+                    combined_path.extend(combine_image_paths(all_contour_paths))
+                if all_hatch_paths:
+                    combined_path.extend(combine_image_paths(all_hatch_paths))
 
                 # Filter to only pen-down points
                 drawing_points = [point for point in combined_path if len(point) >= 3 and point[2]]

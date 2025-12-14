@@ -191,6 +191,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   const [selectedColor, setSelectedColor] = useState(darkMode ? '#ffffff' : '#000000');
   const [textRenderingStyle, setTextRenderingStyle] = useState('filled'); // 'filled' or 'outline'
   const [isDragOver, setIsDragOver] = useState(false);
+  const [canvasScale, setCanvasScale] = useState(1);
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
 
@@ -488,6 +489,25 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       };
     }
   }, [dragging, resizing, handleMouseMove, handleMouseUp]);
+
+  React.useEffect(() => {
+    if (!canvasRef.current) return;
+    
+    const updateScale = () => {
+      if (canvasRef.current) {
+        const { width } = canvasRef.current.getBoundingClientRect();
+        setCanvasScale(width / CANVAS_WIDTH);
+      }
+    };
+
+    // Initial calculation
+    updateScale();
+
+    const resizeObserver = new ResizeObserver(updateScale);
+    resizeObserver.observe(canvasRef.current);
+    
+    return () => resizeObserver.disconnect();
+  }, []);
 
   // Paste event listener for clipboard images
   React.useEffect(() => {
@@ -1203,7 +1223,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                           <input
                             type="range"
                             min="6"
-                            max="20"
+                            max="30"
                             value={hatchSpacing}
                             onChange={(e) => setHatchSpacing(parseInt(e.target.value))}
                             className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
@@ -1296,10 +1316,10 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                       transition={{ type: "spring", stiffness: 300, damping: 20 }}
                       className="absolute group select-none"
                       style={{
-                        left: element.x,
-                        top: element.y,
-                        width: element.width,
-                        height: element.height,
+                        left: `${(element.x / CANVAS_WIDTH) * 100}%`,
+                        top: `${(element.y / CANVAS_HEIGHT) * 100}%`,
+                        width: `${(element.width / CANVAS_WIDTH) * 100}%`,
+                        height: `${(element.height / CANVAS_HEIGHT) * 100}%`,
                       }}
                       onMouseDown={(e) => handleMouseDown(e, element)}
                     >
@@ -1319,7 +1339,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                           <div
                             className="w-full h-full flex items-center justify-center p-4 select-none relative bg-black bg-opacity-10 dark:bg-white dark:bg-opacity-10 rounded-lg"
                             style={{
-                              fontSize: element.fontSize,
+                              fontSize: element.fontSize * canvasScale,
                               fontFamily: element.fontFamily,
                               fontWeight: element.isBold ? 'bold' : 'normal',
                               fontStyle: element.isItalic ? 'italic' : 'normal',

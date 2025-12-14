@@ -63,8 +63,13 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
     img_resized = img.resize((target_w, target_h), 3)  # 3 = BICUBIC/LANCZOS
     arr = np.array(img_resized)
 
+    # Use milder CLAHE (lower clipLimit, larger tiles) and blend with original to reduce the effect
+    clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(16, 16))
+    equalized = clahe.apply(arr)
+    arr_equalized = cv2.addWeighted(arr, 0.7, equalized, 0.3, 0)
+
     # Apply Gaussian blur to reduce noise
-    blurred = cv2.GaussianBlur(arr, (5, 5), 0)
+    blurred = cv2.GaussianBlur(arr_equalized, (5, 5), 0)
     # Detect edges using Canny with fixed thresholds
     # Calculate median and sigma-based thresholds for Canny
     v = float(np.median(blurred.astype(np.float32)))
@@ -243,7 +248,7 @@ def generate_hatch_lines(gray, spacing=4, angle=0, brightness_threshold=180, ada
     binary_img = np.where(dark_mask & line_mask, 255, 0).astype(np.uint8)
     
     # Extract contours from the binary image
-    contours, _ = cv2.findContours(binary_img, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    contours, _ = cv2.findContours(binary_img, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     
     # Convert contours to paths
     paths = []
@@ -288,7 +293,7 @@ def image_to_hatch_paths(image_path: str, board_width: int, board_height: int,
     arr = np.array(img_resized)
 
     # Smooth small noise
-    gray = cv2.GaussianBlur(arr, (3, 3), 0)
+    gray = cv2.GaussianBlur(arr, (9, 9), 0)
     # Normalize brightness
     gray = cv2.equalizeHist(gray)
 

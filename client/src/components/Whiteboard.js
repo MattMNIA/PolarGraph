@@ -23,6 +23,13 @@ const MIN_ELEMENT_WIDTH = 1;
 const MIN_ELEMENT_HEIGHT = 1;
 const RESIZE_MIN_WIDTH = 50;
 const RESIZE_MIN_HEIGHT = 30;
+const SPEED_OPTIONS = [
+  { label: 'Slow', value: 2000 },
+  { label: 'Moderate', value: 5000 },
+  { label: 'Fast', value: 9000 },
+  { label: 'Extreme', value: 15000 },
+];
+
 const clamp = (value, min, max) => {
   if (!Number.isFinite(value)) {
     return min;
@@ -1593,18 +1600,21 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                         darkMode
                       )}
                     />
-                    <input
-                      type="number"
+                    <select
                       value={controllerSpeed}
-                      min={200}
-                      onChange={(event) => setControllerSpeed(parseInt(event.target.value, 10) || 0)}
-                      placeholder="Speed (steps/sec)"
+                      onChange={(event) => setControllerSpeed(parseInt(event.target.value, 10))}
                       className={getThemeClasses(
                         'w-full px-3 py-2 border rounded-lg',
                         { light: 'bg-white border-gray-300 focus:border-blue-500', dark: 'bg-gray-800 border-gray-600 focus:border-blue-400' },
                         darkMode
                       )}
-                    />
+                    >
+                      {SPEED_OPTIONS.map((option) => (
+                        <option key={option.label} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
                     <div className="flex flex-wrap items-center gap-3">
                       <motion.button
                         onClick={sendPathToController}

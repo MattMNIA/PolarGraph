@@ -623,7 +623,7 @@ def visualize():
                             return jsonify({'error': 'A path transmission is already in progress'}), 409
 
                 # Save the path visualization (separate from combined preview)
-                if all_image_paths:
+                if combined_path:
                     path_viz_path = os.path.join(os.path.dirname(__file__), 'path_visualization.png')
                     cv2.imwrite(path_viz_path, board_img)
 

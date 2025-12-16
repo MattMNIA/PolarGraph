@@ -35,7 +35,7 @@ except ImportError:
 # Add the current directory to Python path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 
-from polargraph.path_sender import PathSender, PathSenderBusyError  # noqa: E402
+from polargraph.path_sender import PathSender, PathSenderBusyError, estimate_path_duration  # noqa: E402
 
 app = Flask(__name__, static_folder="../client/build", static_url_path="/")
 if CORS:
@@ -618,6 +618,11 @@ def visualize():
                                 'paused': job.paused,
                                 'cancelUrl': cancel_url,
                                 'controllerStatus': controller_status_cache.snapshot(),
+                                'totalBatches': job.total_batches,
+                                'sentBatches': job.sent_batches,
+                                'sentPoints': job.sent_points,
+                                'totalDuration': job.total_duration,
+                                'remainingDuration': job.remaining_duration,
                             }
                         except PathSenderBusyError:
                             return jsonify({'error': 'A path transmission is already in progress'}), 409
@@ -632,12 +637,21 @@ def visualize():
                         path_image_data = f.read()
                         path_preview = f"data:image/png;base64,{base64.b64encode(path_image_data).decode()}"
 
+                estimated_time = 0.0
+                if path_points:
+                    try:
+                        calc_speed = int(controller_speed_value)
+                    except (TypeError, ValueError):
+                        calc_speed = 1800
+                    estimated_time = estimate_path_duration(path_points, max(1, calc_speed))
+
                 response_payload = {
                     'success': True,
                     'boardWidth': board_width,
                     'boardHeight': board_height,
                     'imageCount': len(images),
                     'pathLength': total_path_length,
+                    'estimatedTime': estimated_time,
                     'previewImage': preview_image,
                     'pathImage': path_preview,
                     'animationUrl': '/api/animation',  # Placeholder

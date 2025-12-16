@@ -36,7 +36,7 @@ def plan_linear_path(points: List[Point], step_mm: float = step_mm) -> List[Poin
     return out
 
 
-def plan_pen_aware_path(path: Union[List[Point], List[List[Point]]], pen_up_threshold_mm: float = 10.0, step_mm: float = step_mm) -> List[Tuple[float, float, bool]]:
+def plan_pen_aware_path(path: Union[List[Point], List[List[Point]]], pen_up_threshold_mm: float = 1.0, step_mm: float = step_mm) -> List[Tuple[float, float, bool]]:
     """Create a path that includes pen-up/pen-down states.
 
     Input may be either a flat list of points (continuous drawing) or a list of segments
@@ -101,6 +101,9 @@ def plan_pen_aware_path(path: Union[List[Point], List[List[Point]]], pen_up_thre
             # Check distance for pen-up optimization
             dist = math.hypot(start[0] - current_pos[0], start[1] - current_pos[1])
             should_keep_pen_down = dist < pen_up_threshold_mm
+            
+            # If we are keeping the pen down, we must ensure we don't accidentally emit a pen-up point
+            # interpolate_line handles this based on the pen_down flag passed to it.
             out.extend(interpolate_line(current_pos, start, should_keep_pen_down))
 
         # draw the segment (pen down)

@@ -28,7 +28,7 @@ def smooth_path(path, radius=3):
     cumsum = np.cumsum(padded, axis=0)
     cumsum = np.vstack((np.zeros((1, padded.shape[1]), dtype=np.float32), cumsum))
     smoothed = (cumsum[window:] - cumsum[:-window]) / window
-    return [tuple(map(int, pt)) for pt in smoothed]
+    return [tuple(pt) for pt in smoothed]
 
 
 def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
@@ -59,9 +59,14 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
         target_w = max(1, int(round(w * scale)))
         target_h = max(1, int(round(h * scale)))
 
-    # Use high-quality resampling
-    img_resized = img.resize((target_w, target_h), 3)  # 3 = BICUBIC/LANCZOS
-    arr = np.array(img_resized)
+    # Oversampling for smoother contours
+    oversample = 2.0
+    process_w = int(target_w * oversample)
+    process_h = int(target_h * oversample)
+
+    # Use high-quality resampling for processing
+    img_process = img.resize((process_w, process_h), 3)  # 3 = BICUBIC/LANCZOS
+    arr = np.array(img_process)
 
     # Use milder CLAHE (lower clipLimit, larger tiles) and blend with original to reduce the effect
     clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(16, 16))
@@ -84,22 +89,31 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
 
     paths = []
     for cnt in contours:
-        path = [(int(p[0][0]), int(p[0][1])) for p in cnt]
+        path = [(float(p[0][0]), float(p[0][1])) for p in cnt]
         if len(path) > 1:
             path = smooth_path(path, radius=2)  # optional smoothing
             paths.append(path)
 
     # Scale to board with specified position
-    pixel_paths = paths
+    pixel_paths = []
     scaled_paths = []
     for path in paths:
-        scaled = [((px + x), (py + y)) for px, py in path]
+        # Downscale back to target resolution for pixel_paths
+        pixel_path = [(px / oversample, py / oversample) for px, py in path]
+        pixel_paths.append(pixel_path)
+        
+        # Scale to board
+        scaled = [((px / oversample + x), (py / oversample + y)) for px, py in path]
         scaled_paths.append(scaled)
 
+    # Create intermediates for display (at target resolution)
+    img_display = img.resize((target_w, target_h), 3)
+    arr_display = np.array(img_display)
+    
     intermediates = {
-        'resized': arr,
-        'blurred': blurred,
-        'edges': edges
+        'resized': arr_display,
+        'blurred': cv2.resize(blurred, (target_w, target_h)),
+        'edges': cv2.resize(edges, (target_w, target_h))
     }
     return pixel_paths, scaled_paths, intermediates
 

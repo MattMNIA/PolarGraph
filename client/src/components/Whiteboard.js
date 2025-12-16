@@ -30,6 +30,17 @@ const SPEED_OPTIONS = [
   { label: 'Extreme', value: 15000 },
 ];
 
+const formatDuration = (seconds) => {
+  if (!seconds && seconds !== 0) return 'N/A';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+};
+
 const clamp = (value, min, max) => {
   if (!Number.isFinite(value)) {
     return min;
@@ -1574,6 +1585,9 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                   <div className="text-sm opacity-75 text-center">
                     <p>Board Size: {visualizationResult?.boardWidth || 'N/A'} × {visualizationResult?.boardHeight || 'N/A'}</p>
                     <p>Images: {visualizationResult?.imageCount || 'N/A'} | Path Points: {visualizationResult?.pathLength || 'N/A'}</p>
+                    {visualizationResult?.estimatedTime > 0 && (
+                      <p>Estimated Time: {formatDuration(visualizationResult.estimatedTime)}</p>
+                    )}
                     {animationResult && (
                       <p>Animation: {animationResult.frameCount || 'N/A'} frames | Duration: {animationResult.duration || 'N/A'}</p>
                     )}
@@ -1728,6 +1742,12 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                               <span>{pathJobStatus?.sentPoints || 0} / {pathJobStatus?.totalPoints || 0} points</span>
                               <span>{pathJobStatus?.sentBatches || 0} / {pathJobStatus?.totalBatches || 0} batches</span>
                             </div>
+                            {pathJobStatus?.remainingDuration !== undefined && (
+                                <div className="flex justify-between text-xs opacity-75">
+                                    <span>Est. Remaining: {formatDuration(pathJobStatus.remainingDuration)}</span>
+                                    <span>Total Est.: {formatDuration(pathJobStatus.totalDuration)}</span>
+                                </div>
+                            )}
                           </>
                         ) : (
                           <p className="text-xs opacity-75">Awaiting transmission data…</p>

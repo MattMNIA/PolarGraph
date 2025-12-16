@@ -14,6 +14,76 @@ import requests
 ACTIVE_JOB_STATUSES = {"pending", "running", "cancelling"}
 FINAL_JOB_STATUSES = {"completed", "cancelled", "failed"}
 
+# Constants for time estimation
+STEPS_PER_MM = 169.76
+TRAVEL_SPEED = 3500
+PEN_SERVO_SETTLE_MS = 400
+
+def compute_string_lengths(x: float, y: float) -> tuple[float, float]:
+    d = 29.0
+    motor_offset_y = 60.0
+    board_width = 1150.0
+
+    left_x = x - d
+    right_x = x + d
+    y_rel = y + motor_offset_y
+
+    left_len = math.sqrt(left_x * left_x + y_rel * y_rel)
+    dx = board_width - right_x
+    right_len = math.sqrt(dx * dx + y_rel * y_rel)
+
+    return left_len, right_len
+
+def estimate_path_duration(points: Sequence[dict], speed: int, start_position: Optional[dict] = None) -> float:
+    """Estimate the duration of a path in seconds."""
+    if not points:
+        return 0.0
+    
+    total_seconds = 0.0
+    current_l1 = None
+    current_l2 = None
+    current_pen_down = False # Assume start with pen up (travel)
+
+    if start_position:
+        # If start position is provided, use it to initialize
+        if 'l1' in start_position and 'l2' in start_position:
+             current_l1 = start_position['l1']
+             current_l2 = start_position['l2']
+        elif 'x' in start_position and 'y' in start_position:
+             current_l1, current_l2 = compute_string_lengths(start_position['x'], start_position['y'])
+        
+        current_pen_down = start_position.get('penDown', False)
+    
+    for point in points:
+        x = point['x']
+        y = point['y']
+        pen_down = point.get('penDown', True)
+        
+        l1, l2 = compute_string_lengths(x, y)
+
+        # Add settle time if pen state changes
+        if current_pen_down != pen_down:
+            total_seconds += (PEN_SERVO_SETTLE_MS / 1000.0)
+        
+        if current_l1 is not None and current_l2 is not None:
+            dl1 = abs(l1 - current_l1)
+            dl2 = abs(l2 - current_l2)
+            max_delta_mm = max(dl1, dl2)
+            
+            steps = max_delta_mm * STEPS_PER_MM
+            current_speed = speed if pen_down else max(speed, TRAVEL_SPEED)
+            
+            if current_speed > 0:
+                total_seconds += steps / current_speed
+                
+        current_l1 = l1
+        current_l2 = l2
+        current_pen_down = pen_down
+        
+    return total_seconds
+        
+    return total_seconds
+
 @dataclass
 class PathSendJob:
     """Represents an in-flight microcontroller transmission job."""
@@ -35,6 +105,8 @@ class PathSendJob:
     finished_at: Optional[float] = field(default=None)
     error: Optional[str] = field(default=None)
     paused: bool = field(default=False)
+    total_duration: float = field(default=0.0)
+    remaining_duration: float = field(default=0.0)
     _cancel_event: threading.Event = field(default_factory=threading.Event, init=False, repr=False)
     _pause_event: threading.Event = field(default_factory=threading.Event, init=False, repr=False)
 
@@ -190,6 +262,8 @@ class PathSender:
                 # Without controller state we cannot safely assume the gondola is already at the first point; ask for an explicit start.
                 raise ValueError("start_position required (or provide a reachable status_url so we can read controller state)")
 
+        duration = estimate_path_duration(job_points, max(1, int(speed)), start_position=derived_start)
+
         job = PathSendJob(
             job_id=str(uuid.uuid4()),
             controller_url=controller_url.rstrip("/"),
@@ -200,6 +274,8 @@ class PathSender:
             reset=reset,
             points=job_points,
             batch_size=self.batch_size,
+            total_duration=duration,
+            remaining_duration=duration,
         )
 
         with self._lock:
@@ -293,6 +369,8 @@ class PathSender:
             "paused": job.paused,
             "cancelUrl": job.cancel_url,
             "statusUrl": job.status_url,
+            "totalDuration": job.total_duration,
+            "remainingDuration": job.remaining_duration,
         }
         return result
 
@@ -353,7 +431,14 @@ class PathSender:
 
                 estimated_remaining_points = total_points - end_index
                 if chunk_size > 0:
-                    future_batches = (estimated_remaining_points + chunk_size - 1) // chunk_size
+                    # Use the configured batch size for estimation, unless the current chunk is larger (which shouldn't happen often)
+                    # This prevents the estimate from blowing up when we send small chunks (e.g. first batch = 1)
+                    estimation_chunk_size = max(chunk_size, self.batch_size)
+                    if first_batch:
+                         # If it's the first batch (size 1), definitely use the standard batch size for future estimates
+                         estimation_chunk_size = self.batch_size
+                    
+                    future_batches = (estimated_remaining_points + estimation_chunk_size - 1) // estimation_chunk_size
                     job.total_batches = max(job.total_batches, job.sent_batches + 1 + future_batches)
 
                 payload = self._build_payload(job, batch_points, first_batch=first_batch)
@@ -364,6 +449,31 @@ class PathSender:
                     points_count=len(batch_points),
                 )
                 self._validate_controller_ack(response)
+
+                # Update remaining duration
+                points_for_calc = batch_points
+                if start_index > 0:
+                    points_for_calc = [job.points[start_index - 1]] + batch_points
+                
+                # For remaining duration, we don't need start_position because we are continuing from previous point
+                # But we need to know the pen state of the previous point to calculate settle time correctly
+                prev_pen_down = False
+                if start_index > 0:
+                    prev_pen_down = job.points[start_index - 1].get('penDown', False)
+                elif job.start_position:
+                    prev_pen_down = job.start_position.get('penDown', False)
+
+                # We can pass a dummy start position with just pen state to estimate_path_duration
+                # Or we can just rely on the fact that points_for_calc[0] sets the state.
+                # points_for_calc[0] is the previous point.
+                # estimate_path_duration iterates from points_for_calc[0].
+                # It sets current_pen_down = points_for_calc[0].penDown.
+                # Then it goes to points_for_calc[1] (first point of batch).
+                # If pen state changes, it adds time.
+                # This is correct.
+                
+                batch_duration = estimate_path_duration(points_for_calc, job.speed)
+                job.remaining_duration = max(0.0, job.remaining_duration - batch_duration)
 
                 job.sent_batches += 1
                 job.sent_points += len(batch_points)

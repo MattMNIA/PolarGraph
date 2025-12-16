@@ -173,6 +173,10 @@ class PathSender:
             job_points.append(travel)
             # Always keep the user points after the travel to ensure we draw what was requested.
             job_points.extend(normalized)
+
+            # Automatically park the machine at (900, 100) after the job
+            park_point = {"x": 900.0, "y": 100.0, "penDown": False}
+            job_points.append(park_point)
         else:
             job_points = normalized
 

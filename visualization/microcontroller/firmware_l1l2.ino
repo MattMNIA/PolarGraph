@@ -736,6 +736,45 @@ void handlePath() {
     server.send(200, "application/json", payload);
 }
 
+void handlePark() {
+    addCorsHeaders();
+    if (server.method() != HTTP_POST) {
+        server.send(405, "application/json", "{\"error\":\"Use POST\"}");
+        return;
+    }
+
+    // Park position: (900, 100)
+    float targetX = 900.0f;
+    float targetY = 100.0f;
+    float l1 = 0.0f;
+    float l2 = 0.0f;
+
+    if (!computeStringLengths(targetX, targetY, l1, l2)) {
+        server.send(422, "application/json", "{\"error\":\"Park position unreachable\"}");
+        return;
+    }
+
+    QueuedPoint point = {l1, l2, false, TRAVEL_SPEED};
+
+    lockQueue();
+    pointQueue.push_back(point);
+    // Ensure execution starts if it was idle
+    if (!isExecuting && !pointQueue.empty()) {
+        isExecuting = true;
+    }
+    unlockQueue();
+
+    StaticJsonDocument<128> response;
+    response["status"] = "queued";
+    response["action"] = "park";
+    response["target_x"] = targetX;
+    response["target_y"] = targetY;
+
+    String payload;
+    serializeJson(response, payload);
+    server.send(200, "application/json", payload);
+}
+
 
 void setupPins() {
     for (auto& motor : motors) {
@@ -796,6 +835,8 @@ void setup() {
     server.on("/api/path", HTTP_POST, handlePath);
     server.on("/api/cancel", HTTP_OPTIONS, handleCorsPreflight);
     server.on("/api/cancel", HTTP_POST, handleCancel);
+    server.on("/api/park", HTTP_OPTIONS, handleCorsPreflight);
+    server.on("/api/park", HTTP_POST, handlePark);
     server.begin();
 
     xTaskCreatePinnedToCore(

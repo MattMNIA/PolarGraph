@@ -93,12 +93,15 @@ def plan_pen_aware_path(path: Union[List[Point], List[List[Point]]], pen_up_thre
         if not seg:
             continue
         start = seg[0]
-        # travel to segment start with pen up
+        # travel to segment start
         if current_pos is None:
             # emit the first start point as pen-up so the animation shows travel
             out.append((start[0], start[1], False))
         else:
-            out.extend(interpolate_line(current_pos, start, False))
+            # Check distance for pen-up optimization
+            dist = math.hypot(start[0] - current_pos[0], start[1] - current_pos[1])
+            should_keep_pen_down = dist < pen_up_threshold_mm
+            out.extend(interpolate_line(current_pos, start, should_keep_pen_down))
 
         # draw the segment (pen down)
         for i in range(len(seg) - 1):

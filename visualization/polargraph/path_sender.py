@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import threading
 import time
 import uuid
@@ -379,17 +380,46 @@ class PathSender:
                 if job.status not in {"pending", "running"}:
                     self._job = None
 
+    def _compute_string_lengths(self, x: float, y: float) -> dict:
+        d = 29.0
+        motor_offset_y = 60.0
+        board_width = 1150.0
+
+        left_x = x - d
+        right_x = x + d
+        y_rel = y + motor_offset_y
+
+        left_len = math.sqrt(left_x * left_x + y_rel * y_rel)
+        dx = board_width - right_x
+        right_len = math.sqrt(dx * dx + y_rel * y_rel)
+
+        return {"l1": left_len, "l2": right_len}
+
     def _build_payload(self, job: PathSendJob, batch: List[dict], *, first_batch: bool) -> dict:
+        converted_batch = []
+        for pt in batch:
+            lengths = self._compute_string_lengths(pt["x"], pt["y"])
+            converted_batch.append({
+                "l1": lengths["l1"],
+                "l2": lengths["l2"],
+                "penDown": pt["penDown"]
+            })
+
         payload = {
             "reset": bool(job.reset) if first_batch else False,
             "speed": job.speed,
-            "points": batch,
+            "points": converted_batch,
         }
         # Only send startPosition if this is the very first batch AND we are resetting.
         # If we send startPosition in later batches, the firmware might re-initialize its coordinates
         # to the start position, causing it to "teleport" back to start and overshoot on the next move.
         if first_batch and job.reset and job.start_position:
-            payload["startPosition"] = job.start_position
+            start_lengths = self._compute_string_lengths(job.start_position["x"], job.start_position["y"])
+            payload["startPosition"] = {
+                "l1": start_lengths["l1"],
+                "l2": start_lengths["l2"],
+                "penDown": job.start_position["penDown"]
+            }
         return payload
 
     def _determine_chunk_size(self, job: PathSendJob, *, first_batch: bool) -> int:

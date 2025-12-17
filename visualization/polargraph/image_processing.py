@@ -74,7 +74,7 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
     arr_equalized = cv2.addWeighted(arr, 0.7, equalized, 0.3, 0)
 
     # Apply Gaussian blur to reduce noise
-    blurred = cv2.GaussianBlur(arr_equalized, (5, 5), 0)
+    blurred = cv2.GaussianBlur(arr_equalized, (9, 9), 0)
     # Detect edges using Canny with fixed thresholds
     # Calculate median and sigma-based thresholds for Canny
     v = float(np.median(blurred.astype(np.float32)))
@@ -85,7 +85,7 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
     # Find contours
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
     # Filter out small contours
-    contours = [cnt for cnt in contours if len(cnt) > 1]
+    contours = [cnt for cnt in contours if len(cnt) > 20]
 
     paths = []
     for cnt in contours:

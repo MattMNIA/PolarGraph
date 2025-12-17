@@ -441,7 +441,8 @@ class PathSender:
                     future_batches = (estimated_remaining_points + estimation_chunk_size - 1) // estimation_chunk_size
                     job.total_batches = max(job.total_batches, job.sent_batches + 1 + future_batches)
 
-                payload = self._build_payload(job, batch_points, first_batch=first_batch)
+                is_last_batch = (end_index == total_points)
+                payload = self._build_payload(job, batch_points, first_batch=first_batch, last_batch=is_last_batch)
                 response = self._post_with_retries(
                     job,
                     job.controller_url,
@@ -509,7 +510,7 @@ class PathSender:
 
         return {"l1": left_len, "l2": right_len}
 
-    def _build_payload(self, job: PathSendJob, batch: List[dict], *, first_batch: bool) -> dict:
+    def _build_payload(self, job: PathSendJob, batch: List[dict], *, first_batch: bool, last_batch: bool) -> dict:
         converted_batch = []
         for pt in batch:
             lengths = self._compute_string_lengths(pt["x"], pt["y"])
@@ -521,6 +522,7 @@ class PathSender:
 
         payload = {
             "reset": bool(job.reset) if first_batch else False,
+            "endOfJob": last_batch,
             "speed": job.speed,
             "points": converted_batch,
         }

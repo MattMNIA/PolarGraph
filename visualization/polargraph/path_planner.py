@@ -116,47 +116,51 @@ def plan_pen_aware_path(path: Union[List[Point], List[List[Point]]], pen_up_thre
 
 
 def optimize_contour_order(contours):
-    """Optimize the order of contours to minimize travel distance."""
+    """Optimize the order of contours to minimize travel distance, considering reversals."""
     if not contours:
         return []
-    # Use first point of each contour as representative
-    reps = [(i, c[0]) for i, c in enumerate(contours)]
-    order = []
-    visited = set()
-    # Start with the leftmost
-    start_idx = min(reps, key=lambda x: x[1][0])[0]
-    current = reps[start_idx][1]
-    order.append(start_idx)
-    visited.add(start_idx)
-    while len(order) < len(contours):
-        # Find nearest unvisited
-        nearest_idx = None
-        min_dist = float('inf')
-        for i, pt in reps:
-            if i not in visited:
-                dist = ((pt[0] - current[0])**2 + (pt[1] - current[1])**2)**0.5
-                if dist < min_dist:
-                    min_dist = dist
-                    nearest_idx = i
-        if nearest_idx is not None:
-            order.append(nearest_idx)
-            visited.add(nearest_idx)
-            current = reps[nearest_idx][1]
-    return [contours[i] for i in order]
+    
+    # Helper to get distance squared
+    def dist_sq(p1, p2):
+        return (p1[0]-p2[0])**2 + (p1[1]-p2[1])**2
 
-
-def optimize_path_directions(paths):
-    """Optimize the direction of each path to minimize travel between segments."""
-    if not paths:
-        return
-    current_end = paths[0][-1]
-    for i in range(1, len(paths)):
-        next_path = paths[i]
-        dist_to_start = ((next_path[0][0] - current_end[0])**2 + (next_path[0][1] - current_end[1])**2)**0.5
-        dist_to_end = ((next_path[-1][0] - current_end[0])**2 + (next_path[-1][1] - current_end[1])**2)**0.5
-        if dist_to_end < dist_to_start:
-            paths[i] = list(reversed(next_path))
-        current_end = paths[i][-1]
+    available = list(contours)
+    ordered = []
+    
+    # Start with the one with min X (arbitrary start)
+    start_idx = min(range(len(available)), key=lambda i: available[i][0][0])
+    current_contour = available.pop(start_idx)
+    ordered.append(current_contour)
+    current_pos = current_contour[-1]
+    
+    while available:
+        best_idx = -1
+        best_dist_sq = float('inf')
+        should_reverse = False
+        
+        for i, contour in enumerate(available):
+            # Check start
+            d_start = dist_sq(current_pos, contour[0])
+            if d_start < best_dist_sq:
+                best_dist_sq = d_start
+                best_idx = i
+                should_reverse = False
+            
+            # Check end
+            d_end = dist_sq(current_pos, contour[-1])
+            if d_end < best_dist_sq:
+                best_dist_sq = d_end
+                best_idx = i
+                should_reverse = True
+        
+        next_contour = available.pop(best_idx)
+        if should_reverse:
+            next_contour = list(reversed(next_contour))
+        
+        ordered.append(next_contour)
+        current_pos = next_contour[-1]
+        
+    return ordered
 
 
 def merge_contours(contours: List[List[Point]], threshold: float = 1.0) -> List[List[Point]]:
@@ -210,11 +214,8 @@ def combine_image_paths(image_path_sets: List[List[List[Point]]], step_mm: float
     if not all_segments:
         return []
 
-    # Optimize the order of all segments across images
+    # Optimize the order of all segments across images (handles reversals too)
     all_segments = optimize_contour_order(all_segments)
-
-    # Optimize directions
-    optimize_path_directions(all_segments)
 
     # Merge nearby contours
     all_segments = merge_contours(all_segments, threshold=pen_up_threshold_mm)

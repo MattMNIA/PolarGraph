@@ -115,15 +115,95 @@ def plan_pen_aware_path(path: Union[List[Point], List[List[Point]]], pen_up_thre
     return out
 
 
+def dist_sq(p1, p2):
+    return (p1[0]-p2[0])**2 + (p1[1]-p2[1])**2
+
+def get_closest_point_on_segment(p, a, b):
+    x, y = p
+    x1, y1 = a
+    x2, y2 = b
+    dx = x2 - x1
+    dy = y2 - y1
+    if dx == 0 and dy == 0:
+        return a
+    
+    t = ((x - x1) * dx + (y - y1) * dy) / (dx*dx + dy*dy)
+    t = max(0, min(1, t))
+    return (x1 + t * dx, y1 + t * dy)
+
+def split_contours_at_proximities(contours: List[List[Point]], threshold: float = 1.0) -> List[List[Point]]:
+    """Split contours where other contour endpoints are close to their mid-segments."""
+    if not contours:
+        return []
+    
+    threshold_sq = threshold * threshold
+    pool = list(contours)
+    
+    # Limit iterations
+    for _ in range(3): 
+        changed = False
+        endpoints = []
+        for i, c in enumerate(pool):
+            if not c: continue
+            endpoints.append((c[0], i))
+            endpoints.append((c[-1], i))
+            
+        new_pool = []
+        
+        for i, contour in enumerate(pool):
+            if not contour or len(contour) < 2:
+                new_pool.append(contour)
+                continue
+                
+            best_split = None
+            min_d2 = threshold_sq
+            
+            for ep_pt, ep_c_idx in endpoints:
+                if ep_c_idx == i: continue
+                
+                for j in range(len(contour)-1):
+                    p1 = contour[j]
+                    p2 = contour[j+1]
+                    
+                    if (ep_pt[0] < min(p1[0], p2[0]) - threshold or
+                        ep_pt[0] > max(p1[0], p2[0]) + threshold or
+                        ep_pt[1] < min(p1[1], p2[1]) - threshold or
+                        ep_pt[1] > max(p1[1], p2[1]) + threshold):
+                        continue
+                        
+                    closest = get_closest_point_on_segment(ep_pt, p1, p2)
+                    d2 = dist_sq(ep_pt, closest)
+                    
+                    if d2 < min_d2:
+                        d2_p1 = dist_sq(closest, p1)
+                        d2_p2 = dist_sq(closest, p2)
+                        if d2_p1 > 0.01 and d2_p2 > 0.01:
+                            min_d2 = d2
+                            best_split = (j, closest)
+            
+            if best_split:
+                j, pt = best_split
+                c1 = contour[:j+1] + [pt]
+                c2 = [pt] + contour[j+1:]
+                new_pool.append(c1)
+                new_pool.append(c2)
+                changed = True
+                new_pool.extend(pool[i+1:])
+                break
+            else:
+                new_pool.append(contour)
+        
+        pool = new_pool
+        if not changed:
+            break
+            
+    return pool
+
 def optimize_contour_order(contours):
     """Optimize the order of contours to minimize travel distance, considering reversals."""
     if not contours:
         return []
     
-    # Helper to get distance squared
-    def dist_sq(p1, p2):
-        return (p1[0]-p2[0])**2 + (p1[1]-p2[1])**2
-
     available = list(contours)
     ordered = []
     
@@ -213,6 +293,9 @@ def combine_image_paths(image_path_sets: List[List[List[Point]]], step_mm: float
 
     if not all_segments:
         return []
+
+    # Split contours that are close to each other
+    all_segments = split_contours_at_proximities(all_segments, threshold=pen_up_threshold_mm)
 
     # Optimize the order of all segments across images (handles reversals too)
     all_segments = optimize_contour_order(all_segments)

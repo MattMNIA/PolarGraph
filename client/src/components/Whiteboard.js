@@ -11,7 +11,7 @@ const CANVAS_WIDTH = 900;
 const CANVAS_HEIGHT = 550;
 const BOARD_WIDTH_MM = 1150;
 const BOARD_HEIGHT_MM = 730;
-const MARGIN_MM = 200;
+const MARGIN_MM = 125;
 
 const SCALE_X = BOARD_WIDTH_MM / CANVAS_WIDTH;
 const SCALE_Y = BOARD_HEIGHT_MM / CANVAS_HEIGHT;
@@ -1228,6 +1228,18 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                           />
                           <span className="ml-2 text-sm font-medium">Hatch</span>
                           <span className="ml-2 text-xs text-gray-500">Adaptive cross-hatch patterns</span>
+                        </label>
+                        <label className="flex items-center">
+                          <input
+                            type="radio"
+                            name="drawingMethod"
+                            value="fill"
+                            checked={drawingMethod === 'fill'}
+                            onChange={(e) => setDrawingMethod(e.target.value)}
+                            className="w-4 h-4 text-blue-600 focus:ring-blue-500"
+                          />
+                          <span className="ml-2 text-sm font-medium">Fill</span>
+                          <span className="ml-2 text-xs text-gray-500">Fills dark areas (2mm sweep)</span>
                         </label>
                       </div>
                     </div>

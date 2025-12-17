@@ -88,6 +88,7 @@ MachineState machine = {BOARD_WIDTH_MM/2, BOARD_HEIGHT_MM/2, 0.0f, 0.0f, 0, 0, f
 
 std::deque<QueuedPoint> pointQueue;
 volatile bool isExecuting = false;
+bool endOfJobReceived = false;
 SemaphoreHandle_t queueMutex = nullptr;
 SemaphoreHandle_t stateMutex = nullptr;
 
@@ -569,6 +570,7 @@ void handleCancel() {
     lockQueue();
     pointQueue.clear();
     isExecuting = false;
+    endOfJobReceived = false;
     unlockQueue();
 
     StaticJsonDocument<128> response;
@@ -601,8 +603,9 @@ void handlePath() {
     }
 
     const bool reset = doc["reset"] | false;
+    const bool endOfJob = doc["endOfJob"] | false;
     const uint32_t defaultSpeed = doc["speed"] | DEFAULT_SPEED;
-    Serial.printf("[PATH] Received path. Reset=%s, Speed=%u\n", reset ? "yes" : "no", defaultSpeed);
+    Serial.printf("[PATH] Received path. Reset=%s, EndOfJob=%s, Speed=%u\n", reset ? "yes" : "no", endOfJob ? "yes" : "no", defaultSpeed);
 
     cancelRequested = false;
 
@@ -610,6 +613,7 @@ void handlePath() {
         lockQueue();
         pointQueue.clear();
         isExecuting = false;
+        endOfJobReceived = false;
         unlockQueue();
     }
 
@@ -707,6 +711,12 @@ void handlePath() {
         queued++;
     }
 
+    if (endOfJob) {
+        lockQueue();
+        endOfJobReceived = true;
+        unlockQueue();
+    }
+
     bool startedExecution = false;
     lockQueue();
     if (!isExecuting && !pointQueue.empty()) {
@@ -758,6 +768,7 @@ void handlePark() {
 
     lockQueue();
     pointQueue.push_back(point);
+    endOfJobReceived = true;
     // Ensure execution starts if it was idle
     if (!isExecuting && !pointQueue.empty()) {
         isExecuting = true;
@@ -903,10 +914,12 @@ void loop() {
     bool queueEmpty = false;
     lockQueue();
     queueEmpty = pointQueue.empty();
-    if (queueEmpty) isExecuting = false;
-    unlockQueue();
-
     if (queueEmpty) {
-        Serial.println(F("[QUEUE] Queue empty, execution complete"));
+        if (endOfJobReceived) {
+            isExecuting = false;
+            endOfJobReceived = false;
+            Serial.println(F("[QUEUE] Queue empty and endOfJob received, execution complete"));
+        }
     }
+    unlockQueue();
 }

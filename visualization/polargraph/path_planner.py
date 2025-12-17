@@ -159,12 +159,42 @@ def optimize_path_directions(paths):
         current_end = paths[i][-1]
 
 
-def combine_image_paths(image_path_sets: List[List[List[Point]]], step_mm: float = step_mm) -> List[Tuple[float, float, bool]]:
+def merge_contours(contours: List[List[Point]], threshold: float = 1.0) -> List[List[Point]]:
+    """Merge consecutive contours if the distance between them is less than the threshold."""
+    if not contours:
+        return []
+
+    merged = []
+    current_contour = list(contours[0])
+
+    for i in range(1, len(contours)):
+        next_contour = contours[i]
+        if not next_contour:
+            continue
+        
+        # Distance from end of current to start of next
+        end_pt = current_contour[-1]
+        start_pt = next_contour[0]
+        dist = math.hypot(start_pt[0] - end_pt[0], start_pt[1] - end_pt[1])
+
+        if dist < threshold:
+            # Merge
+            current_contour.extend(next_contour)
+        else:
+            merged.append(current_contour)
+            current_contour = list(next_contour)
+    
+    merged.append(current_contour)
+    return merged
+
+
+def combine_image_paths(image_path_sets: List[List[List[Point]]], step_mm: float = step_mm, pen_up_threshold_mm: float = 1.0) -> List[Tuple[float, float, bool]]:
     """Combine paths from multiple images into a single optimized path.
 
     Args:
         image_path_sets: List of path sets, where each path set is a list of paths from one image
         step_mm: Step size for interpolation
+        pen_up_threshold_mm: Distance threshold below which pen stays down between segments
 
     Returns:
         Combined path with pen-up/pen-down states
@@ -186,5 +216,8 @@ def combine_image_paths(image_path_sets: List[List[List[Point]]], step_mm: float
     # Optimize directions
     optimize_path_directions(all_segments)
 
+    # Merge nearby contours
+    all_segments = merge_contours(all_segments, threshold=pen_up_threshold_mm)
+
     # Convert to pen-aware path
-    return plan_pen_aware_path(all_segments, step_mm=step_mm)
+    return plan_pen_aware_path(all_segments, step_mm=step_mm, pen_up_threshold_mm=pen_up_threshold_mm)

@@ -41,7 +41,7 @@ app = Flask(__name__, static_folder="../client/build", static_url_path="/")
 if CORS:
     CORS(app)  # Enable CORS for all routes
 
-path_sender = PathSender(batch_size=100)
+path_sender = PathSender(batch_size=400)
 
 
 class ControllerStatusPoller:

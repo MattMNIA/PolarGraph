@@ -179,7 +179,7 @@ class PathSender:
 
     def __init__(
         self,
-        batch_size: int = 200,
+        batch_size: int = 400,
         timeout: float = 30.0,
         status_poll_interval: float = 0.5,
         status_timeout: float = 300.0,
@@ -189,7 +189,7 @@ class PathSender:
         queue_fill_target: Optional[int] = None,
         queue_low_watermark: int = 200,
         min_chunk_size: int = 200,
-        max_points_per_request: int = 200,
+        max_points_per_request: int = 400,
     ) -> None:
         self.max_points_per_request = max(1, max_points_per_request)
         self.batch_size = max(1, min(batch_size, self.max_points_per_request))
@@ -648,9 +648,19 @@ class PathSender:
                 return response
             except requests.RequestException as exc:
                 print(f"Request failed: {exc}")
-                if hasattr(exc, 'response') and exc.response:
+                if hasattr(exc, 'response') and exc.response is not None:
                     print(f"Response status: {exc.response.status_code}")
-                    print(f"Response body: {exc.response.text[:500]}")
+                    try:
+                        print(f"Response body: {exc.response.text[:500]}")
+                    except Exception:
+                        print("Could not read response body")
+
+                    # Retry 400 errors up to 3 times
+                    if exc.response.status_code == 400 and attempt <= 3:
+                        print(f"400 Bad Request encountered. Retrying (attempt {attempt})...")
+                        time.sleep(self.send_retry_interval)
+                        continue
+
                 if not self._is_retryable_error(exc):
                     raise
 
@@ -684,8 +694,14 @@ class PathSender:
         while time.time() < deadline:
             if job.cancelled:
                 return False
+            
+            if job.paused:
+                time.sleep(0.5)
+                continue
+
             try:
-                response = self._session.get(job.status_url, timeout=self.timeout)
+                # Use a shorter timeout for status checks to remain responsive
+                response = self._session.get(job.status_url, timeout=3.0)
                 if response.status_code == requests.codes.not_found:
                     print("Status endpoint returned 404, assuming controller is ready")
                     self._last_status_payload = None
@@ -694,7 +710,7 @@ class PathSender:
                 status_payload = self._extract_status_payload(response)
                 self._last_status_payload = status_payload
                 if self._controller_allows_send(status_payload):
-                    print("Controller is ready")
+                    # print("Controller is ready") # Reduce log spam
                     return True
                 consecutive_errors = 0
             except requests.RequestException as exc:

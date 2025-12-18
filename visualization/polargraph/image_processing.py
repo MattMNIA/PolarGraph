@@ -3,7 +3,7 @@
 This module uses OpenCV (if available) to find contours and return ordered points scaled to the board size.
 """
 from typing import Any, List, Tuple, Optional
-from PIL import Image
+from PIL import Image, ImageOps
 import numpy as np
 
 try:
@@ -46,7 +46,9 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
     if cv2 is None:
         raise ImportError("OpenCV, numpy, and scikit-image are required for image->contour conversion. Install via `pip install opencv-python numpy scikit-image`.")
 
-    img = Image.open(image_path).convert("L")
+    img = Image.open(image_path)
+    img = ImageOps.exif_transpose(img)
+    img = img.convert("L")
     # Determine target size
     w, h = img.size
     if width is not None and height is not None:
@@ -241,7 +243,9 @@ def image_to_hatch_paths(image_path: str, board_width: int, board_height: int,
     if cv2 is None:
         raise ImportError("OpenCV and numpy are required for image->hatch conversion. Install via `pip install opencv-python numpy`.")
 
-    img = Image.open(image_path).convert("L")
+    img = Image.open(image_path)
+    img = ImageOps.exif_transpose(img)
+    img = img.convert("L")
     # Determine target size
     w, h = img.size
     if width is not None and height is not None:
@@ -299,7 +303,9 @@ def image_to_dark_fill_paths(image_path: str, board_width: int, board_height: in
     if cv2 is None:
         raise ImportError("OpenCV and numpy are required for image->fill conversion. Install via `pip install opencv-python numpy`.")
 
-    img = Image.open(image_path).convert("L")
+    img = Image.open(image_path)
+    img = ImageOps.exif_transpose(img)
+    img = img.convert("L")
     # Determine target size
     w, h = img.size
     if width is not None and height is not None:

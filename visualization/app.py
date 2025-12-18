@@ -884,33 +884,37 @@ def create_animation():
                 from PIL import Image, ImageDraw, ImageFont
 
                 # Create base white image
-                base_image = Image.new('RGB', (board_width, board_height), 'white')
+                # Optimization: Use a persistent image object and draw incrementally
+                # This prevents O(N^2) redrawing which causes timeouts on Raspberry Pi
+                current_frame = Image.new('RGB', (board_width, board_height), 'white')
+                draw = ImageDraw.Draw(current_frame)
 
                 frames = []
 
                 # Calculate frame step for performance
                 total_points = len(drawing_points)
-                max_frames = min(100, total_points)  # Limit frames for performance
+                # Limit frames for performance - reduced to 60 for Pi compatibility
+                max_frames = min(60, total_points)
                 step = max(1, total_points // max_frames)
 
-                # Create frames - draw dots exactly like the preview
+                # Create frames - draw incrementally
                 for i in range(0, total_points, step):
-                    # Copy base image
-                    frame = base_image.copy()
-                    draw = ImageDraw.Draw(frame)
+                    # Determine the chunk of points to draw for this frame
+                    chunk_end = min(i + step, total_points)
+                    points_chunk = drawing_points[i:chunk_end]
 
-                    # Draw dots for all points up to current frame (exactly like preview)
-                    points_to_draw = drawing_points[:i+1]
-                    for point in points_to_draw:
+                    # Draw only the new points onto the existing frame
+                    for point in points_chunk:
                         x, y = point[0], point[1]
-                        # Draw small dots exactly like the preview (cv2.circle with radius 1)
+                        # Draw small dots exactly like the preview
                         draw.ellipse([x-1, y-1, x+1, y+1], fill='black')
 
-                    frames.append(frame)
+                    # Save a copy of the current state
+                    frames.append(current_frame.copy())
 
                 # Ensure we have at least one frame
                 if not frames:
-                    frames.append(base_image.copy())
+                    frames.append(current_frame.copy())
 
                 # Add a final pause frame (3 seconds)
                 if frames:
@@ -927,7 +931,8 @@ def create_animation():
                     save_all=True,
                     append_images=frames[1:],
                     duration=durations,  # 50ms for drawing, 3000ms for final frame
-                    loop=0  # Infinite loop
+                    loop=0,  # Infinite loop
+                    optimize=True  # Optimize to reduce file size and memory usage
                 )
 
                 # Convert to base64

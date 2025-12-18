@@ -34,3 +34,15 @@ code {
   background-position: bottom right;
   cursor: nw-resize;
 }
+
+/* Safe Area Utilities */
+.safe-area-pl {
+  padding-left: env(safe-area-inset-left);
+}
+.safe-area-pr {
+  padding-right: env(safe-area-inset-right);
+}
+.safe-area-px {
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}

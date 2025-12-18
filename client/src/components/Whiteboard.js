@@ -92,7 +92,7 @@ const Navbar = ({ onOpenMotorControl }) => {
       className={getThemeClasses('border-b',
         { light: 'bg-white border-gray-200', dark: 'bg-gray-900 border-gray-800' }, darkMode)}
     >
-      <div className="max-w-6xl mx-auto px-6">
+      <div className="max-w-6xl mx-auto px-6 safe-area-px">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
             <h1 className="text-xl font-bold text-gray-900 dark:text-white">
@@ -271,6 +271,8 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   // Update selected color when theme changes
   useEffect(() => {
     setSelectedColor(darkMode ? '#ffffff' : '#000000');
+    // Update body background color to match theme (prevents white bars in safe areas)
+    document.body.style.backgroundColor = darkMode ? '#111827' : '#f9fafb';
   }, [darkMode]);
 
   const processImageFile = (file) => {
@@ -1096,7 +1098,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   }, []);
 
   return (
-    <div className={getThemeClasses('min-h-screen transition-colors duration-300',
+    <div className={getThemeClasses('min-h-screen w-full transition-colors duration-300',
       { light: 'bg-gray-50 text-gray-900', dark: 'bg-gray-900 text-white' }, darkMode)}>
 
       {isPortraitMobile && <RotatePrompt />}
@@ -1125,7 +1127,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
 
       {/* Main Content Section - Controls + Canvas */}
       <section className={getThemeClasses('py-2 min-h-screen', { light: 'bg-gray-100', dark: 'bg-gray-800' }, darkMode)}>
-        <div className="max-w-full px-4">
+        <div className="max-w-full px-4 safe-area-px">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0">
             {/* Left Side - Controls */}
             <div className="space-y-6 lg:pr-4">

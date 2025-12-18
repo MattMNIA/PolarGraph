@@ -471,6 +471,38 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     };
   }, [applyJobStatusUpdate]);
 
+  // Fetch job details if we have a running job but no visualization (e.g. after page reload)
+  useEffect(() => {
+    const jobId = pathJobStatus?.jobId;
+    const currentVizJobId = visualizationResult?.pathJob?.jobId;
+
+    if (jobId && (!visualizationResult || currentVizJobId !== jobId)) {
+      const fetchDetails = async () => {
+        try {
+          const response = await fetch(buildApiUrl(`/api/send-path/details/${jobId}`));
+          if (response.ok) {
+            const details = await response.json();
+            // Only update if we have the essential data
+            if (details.previewImage) {
+              setVisualizationResult({
+                previewImage: details.previewImage,
+                pathPoints: details.points,
+                pathLength: details.points ? details.points.length : 0,
+                pathJob: details,
+                // We don't have the original elements, but that's okay for viewing
+                boardWidth: BOARD_WIDTH_MM,
+                boardHeight: BOARD_HEIGHT_MM,
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Failed to fetch job details:', error);
+        }
+      };
+      fetchDetails();
+    }
+  }, [pathJobStatus?.jobId, visualizationResult]);
+
   const handleMouseDown = (e, element) => {
     if (e.target.closest('.delete-btn') || e.target.closest('.resize-handle')) return;
     e.preventDefault();

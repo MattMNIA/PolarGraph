@@ -33,7 +33,7 @@ def smooth_path(path, radius=3):
 
 def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
                           x: float = 0, y: float = 0, width: Optional[float] = None, height: Optional[float] = None,
-                          threshold: int = 128, simplify: float = 0.5) -> Tuple[List[List[Point]], List[List[Point]], dict]:
+                          threshold: int = 128, simplify: float = 0.1) -> Tuple[List[List[Point]], List[List[Point]], dict]:
     """Load an image and return (pixel_paths, scaled_paths).
 
     pixel_paths: contours in resized image pixel coordinates.
@@ -106,23 +106,23 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
             return cnt
 
         pts = cnt.reshape(-1, 2).astype(np.float32)
-        n = len(pts)
-        if n > 2000: # Avoid O(N^2) memory issues for huge contours
-            return cnt
-
-        # Find pair of points with max distance (endpoints of the stroke)
-        diff = pts[:, None, :] - pts[None, :, :]
-        dist_sq = np.sum(diff**2, axis=-1)
-        i, j = np.unravel_index(np.argmax(dist_sq), dist_sq.shape)
-
-        # Return the path segment between the two endpoints
-        # This effectively cuts the loop in half, giving us the "centerline"
-        if i < j:
-            path = cnt[i : j+1]
-        else:
-            path = np.vstack((cnt[i:], cnt[:j+1]))
-            
-        return path
+        
+        # Simplified O(N) approach to find endpoints:
+        # 1. Find point farthest from the first point
+        diff0 = pts - pts[0]
+        dists0 = np.sum(diff0**2, axis=1)
+        idx1 = np.argmax(dists0)
+        
+        # 2. Find point farthest from that point (this is one endpoint)
+        diff1 = pts - pts[idx1]
+        dists1 = np.sum(diff1**2, axis=1)
+        idx2 = np.argmax(dists1)
+        
+        # idx1 and idx2 are the approximate endpoints of the stroke
+        # We just take the path between them, which is effectively "half the loop"
+        i, j = min(idx1, idx2), max(idx1, idx2)
+        
+        return cnt[i : j+1]
 
     paths = []
     for cnt in contours:

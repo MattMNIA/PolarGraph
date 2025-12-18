@@ -90,10 +90,47 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
     # Filter out small contours
     contours = [cnt for cnt in contours if len(cnt) > 10]
 
+    def get_centerline(cnt):
+        """Convert a thin closed contour (loop) into a single open stroke."""
+        # Calculate width to verify it's thin
+        area = cv2.contourArea(cnt)
+        perimeter = cv2.arcLength(cnt, True)
+        if perimeter == 0:
+            return cnt
+        
+        # Heuristic: Average width = 2 * Area / Perimeter
+        # If width is small, treat as a collapsed line (double-back)
+        # Threshold of 5.0 covers lines up to ~2.5 pixels wide (approx 1.25mm)
+        # This ensures that lines drawn by a 1mm pen don't need to be looped.
+        if (2 * area / perimeter) > 5.0:
+            return cnt
+
+        pts = cnt.reshape(-1, 2).astype(np.float32)
+        n = len(pts)
+        if n > 2000: # Avoid O(N^2) memory issues for huge contours
+            return cnt
+
+        # Find pair of points with max distance (endpoints of the stroke)
+        diff = pts[:, None, :] - pts[None, :, :]
+        dist_sq = np.sum(diff**2, axis=-1)
+        i, j = np.unravel_index(np.argmax(dist_sq), dist_sq.shape)
+
+        # Return the path segment between the two endpoints
+        # This effectively cuts the loop in half, giving us the "centerline"
+        if i < j:
+            path = cnt[i : j+1]
+        else:
+            path = np.vstack((cnt[i:], cnt[:j+1]))
+            
+        return path
+
     paths = []
     for cnt in contours:
         if simplify > 0:
-            cnt = cv2.approxPolyDP(cnt, simplify, False)
+            cnt = cv2.approxPolyDP(cnt, simplify, True)
+        
+        # Try to convert thin loops to single strokes
+        cnt = get_centerline(cnt)
 
         path = [(float(p[0][0]), float(p[0][1])) for p in cnt]
         if len(path) > 1:

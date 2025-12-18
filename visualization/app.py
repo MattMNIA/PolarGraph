@@ -41,7 +41,7 @@ app = Flask(__name__, static_folder="../client/build", static_url_path="/")
 if CORS:
     CORS(app)  # Enable CORS for all routes
 
-path_sender = PathSender(batch_size=400)
+path_sender = PathSender(batch_size=200)
 
 
 class ControllerStatusPoller:
@@ -383,7 +383,7 @@ def visualize():
             try:
                 import cv2
                 import numpy as np
-                from polargraph.image_processing import image_to_contour_paths, image_to_hatch_paths
+                from polargraph.image_processing import image_to_contour_paths, image_to_hatch_paths, image_to_dark_fill_paths
                 from polargraph.path_planner import combine_image_paths
                 from PIL import Image, ImageDraw, ImageFont
 
@@ -426,6 +426,24 @@ def visualize():
                             
                         pixel_paths = pixel_paths_contour  # Use contour pixel paths for consistency
                         intermediates = intermediates_contour  # Use contour intermediates for consistency
+                    elif method == 'fill':
+                        # For fill mode, get both contour and fill paths
+                        pixel_paths_contour, paths_contour, intermediates_contour = image_to_contour_paths(
+                            image_path, board_width, board_height, x, y, width, height
+                        )
+                        pixel_paths_fill, paths_fill, intermediates_fill = image_to_dark_fill_paths(
+                            image_path, board_width, board_height, x, y, width, height, spacing=2, threshold=128, angle=45
+                        )
+                        
+                        if paths_contour:
+                            all_contour_paths.append(paths_contour)
+                            total_path_length += sum(len(path) for path in paths_contour)
+                        if paths_fill:
+                            all_hatch_paths.append(paths_fill)
+                            total_path_length += sum(len(path) for path in paths_fill)
+                            
+                        pixel_paths = pixel_paths_contour
+                        intermediates = intermediates_contour
                     else:
                         # Default to contour
                         pixel_paths, paths, intermediates = image_to_contour_paths(
@@ -724,7 +742,7 @@ def create_animation():
 
             # Process images and get drawing paths
             try:
-                from polargraph.image_processing import image_to_contour_paths, image_to_hatch_paths
+                from polargraph.image_processing import image_to_contour_paths, image_to_hatch_paths, image_to_dark_fill_paths
                 from polargraph.path_planner import combine_image_paths
                 from PIL import Image, ImageDraw, ImageFont
 
@@ -752,6 +770,17 @@ def create_animation():
                             all_contour_paths.append(paths_contour)
                         if paths_hatch:
                             all_hatch_paths.append(paths_hatch)
+                    elif method == 'fill':
+                        pixel_paths_contour, paths_contour, intermediates_contour = image_to_contour_paths(
+                            image_path, board_width, board_height, x, y, width, height
+                        )
+                        pixel_paths_fill, paths_fill, intermediates_fill = image_to_dark_fill_paths(
+                            image_path, board_width, board_height, x, y, width, height, spacing=2, threshold=128, angle=45
+                        )
+                        if paths_contour:
+                            all_contour_paths.append(paths_contour)
+                        if paths_fill:
+                            all_hatch_paths.append(paths_fill)
                     else:
                         pixel_paths, paths, intermediates = image_to_contour_paths(
                             image_path, board_width, board_height, x, y, width, height

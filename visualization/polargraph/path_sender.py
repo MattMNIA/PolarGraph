@@ -179,7 +179,7 @@ class PathSender:
 
     def __init__(
         self,
-        batch_size: int = 400,
+        batch_size: int = 200,
         timeout: float = 30.0,
         status_poll_interval: float = 0.5,
         status_timeout: float = 300.0,
@@ -188,8 +188,8 @@ class PathSender:
         controller_queue_capacity: int = 3000,
         queue_fill_target: Optional[int] = None,
         queue_low_watermark: int = 200,
-        min_chunk_size: int = 200,
-        max_points_per_request: int = 400,
+        min_chunk_size: int = 50,
+        max_points_per_request: int = 200,
     ) -> None:
         self.max_points_per_request = max(1, max_points_per_request)
         self.batch_size = max(1, min(batch_size, self.max_points_per_request))

@@ -85,7 +85,7 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
     # Find contours
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
     # Filter out small contours
-    contours = [cnt for cnt in contours if len(cnt) > 20]
+    contours = [cnt for cnt in contours if len(cnt) > 10]
 
     paths = []
     for cnt in contours:
@@ -319,6 +319,115 @@ def image_to_hatch_paths(image_path: str, board_width: int, board_height: int,
 
     # Merge
     pixel_paths = diagonal1_paths + diagonal2_paths
+
+    # Scale to board with specified position
+    scaled_paths = []
+    for path in pixel_paths:
+        scaled = [((px + x), (py + y)) for px, py in path]
+        scaled_paths.append(scaled)
+
+    intermediates = {
+        'resized': arr,
+        'gray': gray
+    }
+    return pixel_paths, scaled_paths, intermediates
+
+
+def image_to_dark_fill_paths(image_path: str, board_width: int, board_height: int,
+                        x: float = 0, y: float = 0, width: Optional[float] = None, height: Optional[float] = None,
+                        spacing: float = 2.0, threshold: int = 128, angle: int = 45) -> Tuple[List[List[Point]], List[List[Point]], dict]:
+    """Load an image and return (pixel_paths, scaled_paths) using dark fill (hatching).
+
+    pixel_paths: fill lines in resized image pixel coordinates.
+    scaled_paths: fill lines scaled and centered on the board.
+    - spacing: pixels between fill lines (approx mm if width is in mm)
+    - threshold: brightness threshold (pixels darker than this are filled)
+    - angle: angle of fill lines
+    """
+    if cv2 is None:
+        raise ImportError("OpenCV and numpy are required for image->fill conversion. Install via `pip install opencv-python numpy`.")
+
+    img = Image.open(image_path).convert("L")
+    # Determine target size
+    w, h = img.size
+    if width is not None and height is not None:
+        # Use specified dimensions
+        target_w = max(1, int(width))  # Ensure minimum of 1
+        target_h = max(1, int(height))  # Ensure minimum of 1
+    else:
+        # Auto-scale to fit board while preserving aspect ratio
+        scale = min(board_width / w, board_height / h)
+        target_w = max(1, int(round(w * scale)))
+        target_h = max(1, int(round(h * scale)))
+
+    # Use high-quality resampling
+    img_resized = img.resize((target_w, target_h), 3)  # 3 = BICUBIC/LANCZOS
+    arr = np.array(img_resized)
+
+    # Smooth small noise
+    gray = cv2.GaussianBlur(arr, (9, 9), 0)
+    
+    # Generate fill lines
+    # Use adaptive=False for fixed spacing (sweeping)
+    pixel_paths = generate_hatch_lines(gray, spacing=spacing, angle=angle, brightness_threshold=threshold, adaptive=False)
+
+    # Optimize path order to minimize pen lifts
+    # Sort paths by their starting point to find the nearest neighbor
+    if pixel_paths:
+        optimized_paths = []
+        current_pos = pixel_paths[0][0]
+        remaining_paths = list(pixel_paths)
+        
+        while remaining_paths:
+            # Find the path that starts closest to current_pos
+            best_idx = -1
+            best_dist = float('inf')
+            reverse_best = False
+            
+            for i, path in enumerate(remaining_paths):
+                # Check distance to start of path
+                d_start = (path[0][0] - current_pos[0])**2 + (path[0][1] - current_pos[1])**2
+                if d_start < best_dist:
+                    best_dist = d_start
+                    best_idx = i
+                    reverse_best = False
+                
+                # Check distance to end of path (if we traverse it backwards)
+                d_end = (path[-1][0] - current_pos[0])**2 + (path[-1][1] - current_pos[1])**2
+                if d_end < best_dist:
+                    best_dist = d_end
+                    best_idx = i
+                    reverse_best = True
+            
+            next_path = remaining_paths.pop(best_idx)
+            if reverse_best:
+                next_path.reverse()
+            
+            # Check if we can merge with the previous path to avoid pen up
+            merged = False
+            if optimized_paths:
+                last_path = optimized_paths[-1]
+                last_point = last_path[-1]
+                start_point = next_path[0]
+                dist_sq = (last_point[0] - start_point[0])**2 + (last_point[1] - start_point[1])**2
+                
+                # Threshold for merging: if the jump is small (e.g. adjacent fill line), don't lift pen.
+                # spacing is the hatch spacing. If dist is around spacing, it's a neighbor.
+                # Use a slightly generous threshold (e.g. 3x spacing) to ensure we catch diagonal steps and small gaps.
+                # We want to prioritize keeping the pen down in continuous areas.
+                threshold_sq = (spacing * 3) ** 2
+                
+                if dist_sq <= threshold_sq:
+                    # Merge paths
+                    last_path.extend(next_path)
+                    current_pos = last_path[-1]
+                    merged = True
+            
+            if not merged:
+                optimized_paths.append(next_path)
+                current_pos = next_path[-1]
+        
+        pixel_paths = optimized_paths
 
     # Scale to board with specified position
     scaled_paths = []

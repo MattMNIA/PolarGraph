@@ -444,6 +444,112 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     });
   };
 
+  const handleTouchStart = (e, element) => {
+    if (e.target.closest('.delete-btn') || e.target.closest('.resize-handle')) return;
+    // Prevent default to stop scrolling/zooming and mouse emulation
+    if (e.cancelable) e.preventDefault();
+    
+    if (!canvasRef.current) return;
+    setDragging(element.id);
+    const rect = canvasRef.current.getBoundingClientRect();
+    const canvasWidth = rect.width;
+    const canvasHeight = rect.height;
+    const scaleX = canvasWidth / CANVAS_WIDTH;
+    const scaleY = canvasHeight / CANVAS_HEIGHT;
+    
+    const touch = e.touches[0];
+    setDragOffset({
+      x: touch.clientX - rect.left - (element.x * scaleX),
+      y: touch.clientY - rect.top - (element.y * scaleY),
+    });
+  };
+
+  const handleResizeTouchStart = (e, element) => {
+    e.stopPropagation();
+    if (e.cancelable) e.preventDefault();
+    setResizing(element.id);
+    const touch = e.touches[0];
+    setResizeStart({
+      x: touch.clientX,
+      y: touch.clientY,
+      width: element.width,
+      height: element.height,
+      aspectRatio: element.originalWidth && element.originalHeight
+        ? element.originalWidth / element.originalHeight
+        : element.width / element.height,
+    });
+  };
+
+  const handleTouchMove = useCallback((e) => {
+    if (!canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+
+    const touch = e.touches[0];
+
+    if (dragging) {
+      // Prevent scrolling while dragging
+      if (e.cancelable) e.preventDefault();
+
+      const scaleX = CANVAS_WIDTH / rect.width;
+      const scaleY = CANVAS_HEIGHT / rect.height;
+
+      const mouseX = (touch.clientX - rect.left - dragOffset.x) * scaleX;
+      const mouseY = (touch.clientY - rect.top - dragOffset.y) * scaleY;
+
+      const element = elements.find((el) => el.id === dragging);
+      if (element) {
+        const minX = MARGIN_X_PX;
+        const minY = MARGIN_Y_PX;
+        const maxX = CANVAS_WIDTH - MARGIN_X_PX - element.width;
+        const maxY = CANVAS_HEIGHT - MARGIN_Y_PX - element.height;
+        updateElement(dragging, {
+          x: Math.max(minX, Math.min(maxX, mouseX)),
+          y: Math.max(minY, Math.min(maxY, mouseY)),
+        });
+      }
+    } else if (resizing) {
+      // Prevent scrolling while resizing
+      if (e.cancelable) e.preventDefault();
+
+      const element = elements.find((el) => el.id === resizing);
+      if (!element) return;
+
+      const scaleX = CANVAS_WIDTH / rect.width;
+      const scaleY = CANVAS_HEIGHT / rect.height;
+      const deltaX = (touch.clientX - resizeStart.x) * scaleX;
+      const deltaY = (touch.clientY - resizeStart.y) * scaleY;
+
+      const maxWidth = CANVAS_WIDTH - MARGIN_X_PX - element.x;
+      const maxHeight = CANVAS_HEIGHT - MARGIN_Y_PX - element.y;
+
+      if (uniformScaling) {
+        const aspectRatio = resizeStart.aspectRatio || 1;
+        let newWidth = Math.max(RESIZE_MIN_WIDTH, resizeStart.width + deltaX);
+        let newHeight = newWidth / aspectRatio;
+
+        if (newWidth > maxWidth || newHeight > maxHeight) {
+          const widthScale = maxWidth / newWidth;
+          const heightScale = maxHeight / newHeight;
+          const scale = Math.min(widthScale, heightScale, 1);
+          newWidth = Math.max(RESIZE_MIN_WIDTH, newWidth * scale);
+          newHeight = Math.max(RESIZE_MIN_HEIGHT, newHeight * scale);
+        }
+
+        updateElement(resizing, { width: newWidth, height: newHeight });
+      } else {
+        const newWidth = Math.min(maxWidth, Math.max(RESIZE_MIN_WIDTH, resizeStart.width + deltaX));
+        const newHeight = Math.min(maxHeight, Math.max(RESIZE_MIN_HEIGHT, resizeStart.height + deltaY));
+        updateElement(resizing, { width: newWidth, height: newHeight });
+      }
+    }
+  }, [dragging, dragOffset, elements, resizing, resizeStart, uniformScaling, updateElement]);
+
+  const handleTouchEnd = useCallback(() => {
+    setDragging(null);
+    setResizing(null);
+  }, []);
+
   const handleMouseMove = useCallback((e) => {
     if (!canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
@@ -510,12 +616,16 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     if (dragging || resizing) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleTouchEnd);
       return () => {
         document.removeEventListener('mousemove', handleMouseMove);
         document.removeEventListener('mouseup', handleMouseUp);
+        document.removeEventListener('touchmove', handleTouchMove);
+        document.removeEventListener('touchend', handleTouchEnd);
       };
     }
-  }, [dragging, resizing, handleMouseMove, handleMouseUp]);
+  }, [dragging, resizing, handleMouseMove, handleMouseUp, handleTouchMove, handleTouchEnd]);
 
   React.useEffect(() => {
     if (!canvasRef.current) return;
@@ -1346,8 +1456,10 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                         top: `${(element.y / CANVAS_HEIGHT) * 100}%`,
                         width: `${(element.width / CANVAS_WIDTH) * 100}%`,
                         height: `${(element.height / CANVAS_HEIGHT) * 100}%`,
+                        touchAction: 'none',
                       }}
                       onMouseDown={(e) => handleMouseDown(e, element)}
+                      onTouchStart={(e) => handleTouchStart(e, element)}
                     >
                       <div className={getThemeClasses(
                         'relative w-full h-full border rounded-lg overflow-hidden',
@@ -1398,7 +1510,11 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                             e.stopPropagation();
                             handleResizeMouseDown(e, element);
                           }}
-                          style={{ zIndex: 10 }}
+                          onTouchStart={(e) => {
+                            e.stopPropagation();
+                            handleResizeTouchStart(e, element);
+                          }}
+                          style={{ zIndex: 10, touchAction: 'none' }}
                         >
                           <div className="w-3 h-3 border-r-2 border-b-2 border-white mb-0.5 mr-0.5"></div>
                         </div>

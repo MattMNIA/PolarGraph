@@ -244,10 +244,18 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   // Check for mobile portrait orientation
   useEffect(() => {
     const checkOrientation = () => {
-      // Check if device is mobile (width < 768px) and in portrait mode (height > width)
-      const isMobile = window.innerWidth < 768;
+      // Check if device is mobile using user agent and screen dimensions
+      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+      const isMobileDevice = /android|ipad|iphone|ipod/i.test(userAgent);
+      
+      // Only trigger for actual mobile devices, not just small windows
+      if (!isMobileDevice) {
+        setIsPortraitMobile(false);
+        return;
+      }
+
       const isPortrait = window.innerHeight > window.innerWidth;
-      setIsPortraitMobile(isMobile && isPortrait);
+      setIsPortraitMobile(isPortrait);
     };
 
     checkOrientation();

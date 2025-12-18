@@ -1151,67 +1151,70 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                       <Upload className={getThemeClasses('', { light: 'text-blue-600', dark: 'text-blue-400' }, darkMode)} size={24} />
                       <h3 className="text-lg font-semibold">Add Images</h3>
                     </div>
-                    <div className="space-y-4">
-                      <input
-                        type="file"
-                        accept="image/*"
-                        onChange={handleImageUpload}
-                        ref={fileInputRef}
-                        className="hidden"
-                      />
-                      <motion.button
-                        onClick={() => fileInputRef.current.click()}
-                        className={getThemeClasses(theme.styles.button.primary.base, theme.styles.button.primary, darkMode)}
-                        {...theme.animations.hover}
-                      >
-                        <Upload className="w-4 h-4 mr-2 inline" />
-                        Upload Image
-                      </motion.button>
-                      <p className="text-sm opacity-75">
-                        Or drag & drop images onto the canvas, or paste images from your clipboard (Ctrl+V)
-                      </p>
-                    </div>
+                    
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+                      <div className="space-y-4 flex-1">
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={handleImageUpload}
+                          ref={fileInputRef}
+                          className="hidden"
+                        />
+                        <motion.button
+                          onClick={() => fileInputRef.current.click()}
+                          className={getThemeClasses(theme.styles.button.primary.base, theme.styles.button.primary, darkMode)}
+                          {...theme.animations.hover}
+                        >
+                          <Upload className="w-4 h-4 mr-2 inline" />
+                          Upload Image
+                        </motion.button>
+                        <p className="text-sm opacity-75">
+                          Or drag & drop images onto the canvas, or paste images from your clipboard (Ctrl+V)
+                        </p>
+                      </div>
 
-                    {/* Compute/Cancel button positioned on the right, centered vertically */}
-                    <div className="absolute top-1/2 right-4 transform -translate-y-1/2">
-                      {isCreatingAnimation ? (
-                        <motion.button
-                          onClick={cancelAnimation}
-                          className={getThemeClasses(
-                            'flex items-center gap-2 px-6 py-3 text-base font-medium rounded-lg border',
-                            {
-                              light: 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100',
-                              dark: 'bg-red-900 border-red-700 text-red-300 hover:bg-red-800'
-                            }, darkMode
-                          )}
-                          {...theme.animations.hover}
-                        >
-                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
-                          Cancel Animation
-                        </motion.button>
-                      ) : (
-                        <motion.button
-                          onClick={runVisualization}
-                          disabled={isVisualizing || elements.length === 0}
-                          className={getThemeClasses(
-                            theme.styles.button.primary.base + ' flex items-center gap-2 px-6 py-3 text-base font-medium',
-                            theme.styles.button.primary, darkMode
-                          )}
-                          {...theme.animations.hover}
-                        >
-                          {isVisualizing ? (
-                            <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                              Computing...
-                            </>
-                          ) : (
-                            <>
-                              <Play className="w-4 h-4" />
-                              Compute Simplified Image
-                            </>
-                          )}
-                        </motion.button>
-                      )}
+                      {/* Compute/Cancel button */}
+                      <div className="flex-shrink-0">
+                        {isCreatingAnimation ? (
+                          <motion.button
+                            onClick={cancelAnimation}
+                            className={getThemeClasses(
+                              'flex items-center gap-2 px-6 py-3 text-base font-medium rounded-lg border',
+                              {
+                                light: 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100',
+                                dark: 'bg-red-900 border-red-700 text-red-300 hover:bg-red-800'
+                              }, darkMode
+                            )}
+                            {...theme.animations.hover}
+                          >
+                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
+                            Cancel Animation
+                          </motion.button>
+                        ) : (
+                          <motion.button
+                            onClick={runVisualization}
+                            disabled={isVisualizing || elements.length === 0}
+                            className={getThemeClasses(
+                              theme.styles.button.primary.base + ' flex items-center gap-2 px-6 py-3 text-base font-medium',
+                              theme.styles.button.primary, darkMode
+                            )}
+                            {...theme.animations.hover}
+                          >
+                            {isVisualizing ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                                Computing...
+                              </>
+                            ) : (
+                              <>
+                                <Play className="w-4 h-4" />
+                                Compute Simplified Image
+                              </>
+                            )}
+                          </motion.button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 </motion.div>

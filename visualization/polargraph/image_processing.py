@@ -127,164 +127,116 @@ def rotate_point(x, y, angle_deg, center):
     return int(xr), int(yr)
 
 
-def generate_hatch_lines(gray, spacing=4, angle=0, brightness_threshold=180, adaptive=True):
+def generate_hatch_lines(gray, spacing=4, angle=0, brightness_threshold=180):
     if cv2 is None:
         raise ImportError("OpenCV is required for hatch line generation. Install via `pip install opencv-python numpy`.")
     """
     Generate line paths based on image brightness.
-    - spacing: pixels between lines (fixed spacing when adaptive=False, min spacing when adaptive=True)
+    - spacing: pixels between lines
     - angle: rotation angle for hatch lines (0 = horizontal)
     - brightness_threshold: how dark a pixel must be to draw
-    - adaptive: if True, use adaptive spacing based on darkness; if False, use fixed spacing
     """
     h, w = gray.shape
     center = (w // 2, h // 2)
     paths = []
 
-    if not adaptive:
-        # Original fixed spacing implementation
-        if angle == 90:
-            # Special case for vertical lines
-            for x in range(0, w, spacing):
-                current_path = []
-                for y in range(0, h):
-                    brightness = gray[y, x]
-                    if brightness < brightness_threshold:
-                        current_path.append((x, y))
-                    else:
-                        if current_path:
-                            paths.append(current_path)
-                            current_path = []
-                if current_path:
-                    paths.append(current_path)
-            return paths
-        elif angle == 45:
-            # 45 degree lines
-            for d in range(-h, w + h, spacing):
-                current_path = []
-                start_i = max(0, -d)
-                end_i = min(w, h - d)
-                for i in range(start_i, end_i):
-                    x = i
-                    y = i + d
-                    if 0 <= y < h and gray[y, x] < brightness_threshold:
-                        current_path.append((x, y))
-                    else:
-                        if current_path:
-                            paths.append(current_path)
-                            current_path = []
-                if current_path:
-                    paths.append(current_path)
-            return paths
-        elif angle == 135:
-            # 135 degree lines
-            for d in range(-h, w + h, spacing):
-                current_path = []
-                start_i = max(0, d - h + 1)
-                end_i = min(d + 1, w)
-                for i in range(start_i, end_i):
-                    x = i
-                    y = d - i
-                    if 0 <= y < h and gray[y, x] < brightness_threshold:
-                        current_path.append((x, y))
-                    else:
-                        if current_path:
-                            paths.append(current_path)
-                            current_path = []
-                if current_path:
-                    paths.append(current_path)
-            return paths
-        # Rotate image if angle != 0
-        if angle != 0:
-            rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
-            rotated_gray = cv2.warpAffine(gray, rot_mat, (w, h), flags=cv2.INTER_LINEAR)
-        else:
-            rotated_gray = gray.copy()
-
-        h_rot = h
-        w_rot = w
-        center_rot = center
-
-        for y in range(0, h_rot, spacing):
+    # Original fixed spacing implementation
+    if angle == 90:
+        # Special case for vertical lines
+        for x in range(0, w, spacing):
             current_path = []
-            for x in range(0, w_rot):
-                brightness = rotated_gray[y, x]
+            for y in range(0, h):
+                brightness = gray[y, x]
                 if brightness < brightness_threshold:
                     current_path.append((x, y))
                 else:
                     if current_path:
-                        # Save the completed segment
                         paths.append(current_path)
                         current_path = []
             if current_path:
                 paths.append(current_path)
-
-        # Rotate points back to original orientation
-        if angle != 0:
-            rotated_paths = []
-            for path in paths:
-                rotated_paths.append([rotate_point(x, y, -angle, center_rot) for (x, y) in path])
-            return rotated_paths
-        else:
-            return paths
-
-    # Adaptive spacing implementation using gamma-based algorithm
-    # Vectorized implementation avoids per-pixel Python loops
-    gamma = 2.2
-    yy, xx = np.indices(gray.shape, dtype=np.float32)
-    normalized = gray.astype(np.float32) / 255.0
-    spacing_factor = np.power(normalized, 1.0 / gamma)
-    max_spacing = float(spacing * 4)
-    adaptive_spacing = spacing + (max_spacing - spacing) * spacing_factor
-    adaptive_spacing = np.maximum(1.0, adaptive_spacing)
-    line_width = np.maximum(1.0, adaptive_spacing / 8.0)
-
-    if angle == 0:
-        line_coord = yy
-    elif angle == 90:
-        line_coord = xx
+        return paths
     elif angle == 45:
-        line_coord = xx + yy
+        # 45 degree lines
+        for d in range(-h, w + h, spacing):
+            current_path = []
+            start_i = max(0, -d)
+            end_i = min(w, h - d)
+            for i in range(start_i, end_i):
+                x = i
+                y = i + d
+                if 0 <= y < h and gray[y, x] < brightness_threshold:
+                    current_path.append((x, y))
+                else:
+                    if current_path:
+                        paths.append(current_path)
+                        current_path = []
+            if current_path:
+                paths.append(current_path)
+        return paths
     elif angle == 135:
-        line_coord = xx - yy
+        # 135 degree lines
+        for d in range(-h, w + h, spacing):
+            current_path = []
+            start_i = max(0, d - h + 1)
+            end_i = min(d + 1, w)
+            for i in range(start_i, end_i):
+                x = i
+                y = d - i
+                if 0 <= y < h and gray[y, x] < brightness_threshold:
+                    current_path.append((x, y))
+                else:
+                    if current_path:
+                        paths.append(current_path)
+                        current_path = []
+            if current_path:
+                paths.append(current_path)
+        return paths
+    # Rotate image if angle != 0
+    if angle != 0:
+        rot_mat = cv2.getRotationMatrix2D(center, angle, 1.0)
+        rotated_gray = cv2.warpAffine(gray, rot_mat, (w, h), flags=cv2.INTER_LINEAR)
     else:
-        rad = np.deg2rad(angle)
-        cos_a = np.cos(rad)
-        sin_a = np.sin(rad)
-        cx, cy = center
-        x_shift = xx - cx
-        y_shift = yy - cy
-        line_coord = x_shift * sin_a + y_shift * cos_a
+        rotated_gray = gray.copy()
 
-    line_position = np.mod(line_coord, adaptive_spacing)
-    dark_mask = gray < brightness_threshold
-    line_mask = line_position <= line_width
-    binary_img = np.where(dark_mask & line_mask, 255, 0).astype(np.uint8)
-    
-    # Extract contours from the binary image
-    contours, _ = cv2.findContours(binary_img, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    
-    # Convert contours to paths
-    paths = []
-    for cnt in contours:
-        path = [(int(p[0][0]), int(p[0][1])) for p in cnt]
-        if len(path) > 1:
-            paths.append(path)
-    
-    return paths
+    h_rot = h
+    w_rot = w
+    center_rot = center
+
+    for y in range(0, h_rot, spacing):
+        current_path = []
+        for x in range(0, w_rot):
+            brightness = rotated_gray[y, x]
+            if brightness < brightness_threshold:
+                current_path.append((x, y))
+            else:
+                if current_path:
+                    # Save the completed segment
+                    paths.append(current_path)
+                    current_path = []
+        if current_path:
+            paths.append(current_path)
+
+    # Rotate points back to original orientation
+    if angle != 0:
+        rotated_paths = []
+        for path in paths:
+            rotated_paths.append([rotate_point(x, y, -angle, center_rot) for (x, y) in path])
+        return rotated_paths
+    else:
+        return paths
 
 
 def image_to_hatch_paths(image_path: str, board_width: int, board_height: int,
                         x: float = 0, y: float = 0, width: Optional[float] = None, height: Optional[float] = None,
-                        spacing: int = 4, horizontal_threshold: int = 160, cross_threshold: int = 140, adaptive: bool = True) -> Tuple[List[List[Point]], List[List[Point]], dict]:
+                        spacing: int = 4, horizontal_threshold: int = 160, cross_threshold: int = 140) -> Tuple[List[List[Point]], List[List[Point]], dict]:
     """Load an image and return (pixel_paths, scaled_paths) using crosshatching.
 
     pixel_paths: hatch lines in resized image pixel coordinates.
     scaled_paths: hatch lines scaled and centered on the board.
-    - spacing: pixels between hatch lines (fixed spacing when adaptive=False, min spacing when adaptive=True)
+    - spacing: pixels between hatch lines
     - horizontal_threshold: brightness threshold for horizontal lines
     - cross_threshold: brightness threshold for cross lines
-    - adaptive: if True, use adaptive spacing based on darkness; if False, use fixed spacing
     """
     if cv2 is None:
         raise ImportError("OpenCV and numpy are required for image->hatch conversion. Install via `pip install opencv-python numpy`.")
@@ -312,10 +264,10 @@ def image_to_hatch_paths(image_path: str, board_width: int, board_height: int,
     gray = cv2.equalizeHist(gray)
 
     # Diagonal hatching (45 degrees)
-    diagonal1_paths = generate_hatch_lines(gray, spacing=spacing, angle=45, brightness_threshold=horizontal_threshold, adaptive=adaptive)
+    diagonal1_paths = generate_hatch_lines(gray, spacing=spacing, angle=45, brightness_threshold=horizontal_threshold)
 
     # Diagonal hatching (135 degrees)
-    diagonal2_paths = generate_hatch_lines(gray, spacing=spacing, angle=135, brightness_threshold=cross_threshold, adaptive=adaptive)
+    diagonal2_paths = generate_hatch_lines(gray, spacing=spacing, angle=135, brightness_threshold=cross_threshold)
 
     # Merge
     pixel_paths = diagonal1_paths + diagonal2_paths
@@ -369,7 +321,7 @@ def image_to_dark_fill_paths(image_path: str, board_width: int, board_height: in
     
     # Generate fill lines
     # Use adaptive=False for fixed spacing (sweeping)
-    pixel_paths = generate_hatch_lines(gray, spacing=spacing, angle=angle, brightness_threshold=threshold, adaptive=False)
+    pixel_paths = generate_hatch_lines(gray, spacing=spacing, angle=angle, brightness_threshold=threshold)
 
     # Optimize path order to minimize pen lifts
     # Sort paths by their starting point to find the nearest neighbor

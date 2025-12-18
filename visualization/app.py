@@ -325,7 +325,6 @@ def visualize():
         board_height = data.get('boardHeight', 550)
         method = data.get('method', 'contour')
         spacing = data.get('spacing', 4)
-        adaptive = data.get('adaptive', True)
         send_to_controller = _as_bool(data.get('sendToController', False))
         include_path_points = _as_bool(data.get('includePathPoints', False))
         controller_url = data.get('controllerUrl') or data.get('controllerURL') or data.get('controller')
@@ -414,7 +413,7 @@ def visualize():
                             image_path, board_width, board_height, x, y, width, height
                         )
                         pixel_paths_hatch, paths_hatch, intermediates_hatch = image_to_hatch_paths(
-                            image_path, board_width, board_height, x, y, width, height, spacing=spacing, adaptive=adaptive
+                            image_path, board_width, board_height, x, y, width, height, spacing=spacing
                         )
                         
                         if paths_contour:
@@ -717,7 +716,6 @@ def create_animation():
         board_height = data.get('boardHeight', 550)
         method = data.get('method', 'contour')
         spacing = data.get('spacing', 4)
-        adaptive = data.get('adaptive', False)
 
         if not images and not text_elements:
             return jsonify({'error': 'No images or text elements provided'}), 400
@@ -764,7 +762,7 @@ def create_animation():
                             image_path, board_width, board_height, x, y, width, height
                         )
                         pixel_paths_hatch, paths_hatch, intermediates_hatch = image_to_hatch_paths(
-                            image_path, board_width, board_height, x, y, width, height, spacing=spacing, adaptive=adaptive
+                            image_path, board_width, board_height, x, y, width, height, spacing=spacing
                         )
                         if paths_contour:
                             all_contour_paths.append(paths_contour)

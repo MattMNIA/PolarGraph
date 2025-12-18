@@ -272,7 +272,8 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   useEffect(() => {
     setSelectedColor(darkMode ? '#ffffff' : '#000000');
     // Update body background color to match theme (prevents white bars in safe areas)
-    document.body.style.backgroundColor = darkMode ? '#111827' : '#f9fafb';
+    // Dark: bg-gray-800 (#1f2937), Light: bg-gray-100 (#f3f4f6)
+    document.body.style.backgroundColor = darkMode ? '#1f2937' : '#f3f4f6';
   }, [darkMode]);
 
   const processImageFile = (file) => {

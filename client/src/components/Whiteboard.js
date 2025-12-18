@@ -1102,7 +1102,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     <div className={getThemeClasses('min-h-screen w-full transition-colors duration-300',
       { light: 'bg-gray-50 text-gray-900', dark: 'bg-gray-900 text-white' }, darkMode)}>
 
-      {isPortraitMobile && <RotatePrompt />}
+      {/* {isPortraitMobile && <RotatePrompt />} */}
 
   <Navbar onOpenMotorControl={onOpenMotorControl} />
 

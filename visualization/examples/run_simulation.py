@@ -42,9 +42,7 @@ def main():
     parser.add_argument('--board-height', type=int, default=550)
     parser.add_argument('--step-mm', type=float, default=2.0)
     parser.add_argument('--method', choices=['contour', 'hatch'], default='contour', help='Image processing method: contour or hatch')
-    parser.add_argument('--spacing', type=int, default=4, help='Minimum spacing between hatch lines in pixels (for hatch method - adaptive spacing used)')
-    parser.add_argument('--adaptive', action='store_true', default=True, help='Use adaptive spacing for hatch method (default: True)')
-    parser.add_argument('--no-adaptive', action='store_false', dest='adaptive', help='Use fixed spacing for hatch method')
+    parser.add_argument('--spacing', type=int, default=4, help='Spacing between hatch lines in pixels (for hatch method)')
     # Legacy single image support
     parser.add_argument('--image', help='Single input image to trace (legacy, use --images instead)')
     args = parser.parse_args()
@@ -121,7 +119,7 @@ def main():
                                                                      x, y, width, height)
         elif args.method == 'hatch':
             pixel_paths, paths, intermediates = image_to_hatch_paths(image_path, args.board_width, args.board_height,
-                                                                   x, y, width, height, spacing=args.spacing, adaptive=args.adaptive)
+                                                                   x, y, width, height, spacing=args.spacing)
 
         if not paths:
             print(f'Warning: No paths found in image {image_path}')

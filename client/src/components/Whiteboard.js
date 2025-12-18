@@ -352,7 +352,6 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   // Drawing method state
   const [drawingMethod, setDrawingMethod] = useState('contour');
   const [hatchSpacing, setHatchSpacing] = useState(6);
-  const [adaptiveHatching, setAdaptiveHatching] = useState(false);
 
   // Visualization state
   const [isVisualizing, setIsVisualizing] = useState(false);
@@ -617,10 +616,9 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       boardHeight: BOARD_HEIGHT_MM,
       method: drawingMethod,
       spacing: hatchSpacing,
-      adaptive: adaptiveHatching,
       ...overrides,
     };
-  }, [elements, drawingMethod, hatchSpacing, adaptiveHatching]);
+  }, [elements, drawingMethod, hatchSpacing]);
 
   // Visualization function
   const runVisualization = async () => {
@@ -1227,7 +1225,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                             className="w-4 h-4 text-blue-600 focus:ring-blue-500"
                           />
                           <span className="ml-2 text-sm font-medium">Hatch</span>
-                          <span className="ml-2 text-xs text-gray-500">Adaptive cross-hatch patterns</span>
+                          <span className="ml-2 text-xs text-gray-500">Cross-hatch patterns</span>
                         </label>
                         <label className="flex items-center">
                           <input
@@ -1245,28 +1243,9 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                     </div>
                     {drawingMethod === 'hatch' && (
                       <div className="space-y-4">
-                        {/* Adaptive Hatching Toggle */}
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <h4 className="font-medium text-gray-900 dark:text-white">Adaptive Hatching</h4>
-                            <p className="text-sm text-gray-600 dark:text-gray-400">
-                              {adaptiveHatching ? 'Variable spacing based on darkness' : 'Fixed spacing between lines'}
-                            </p>
-                          </div>
-                          <label className="flex items-center cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={adaptiveHatching}
-                              onChange={(e) => setAdaptiveHatching(e.target.checked)}
-                              className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
-                            />
-                            <span className="ml-2 text-sm font-medium">Enabled</span>
-                          </label>
-                        </div>
-
                         <div className="space-y-2">
                           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                            {adaptiveHatching ? 'Min Hatch Spacing' : 'Hatch Spacing'}: {hatchSpacing}px
+                            Hatch Spacing: {hatchSpacing}px
                           </label>
                           <input
                             type="range"

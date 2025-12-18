@@ -1249,7 +1249,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                           </label>
                           <input
                             type="range"
-                            min="6"
+                            min="10"
                             max="30"
                             value={hatchSpacing}
                             onChange={(e) => setHatchSpacing(parseInt(e.target.value))}

@@ -197,6 +197,34 @@ const Footer = () => {
   );
 };
 
+// Rotate Prompt Component
+const RotatePrompt = () => {
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/90 flex flex-col items-center justify-center text-white p-8 text-center">
+      <div className="mb-6 animate-bounce">
+        <svg 
+          width="64" 
+          height="64" 
+          viewBox="0 0 24 24" 
+          fill="none" 
+          stroke="currentColor" 
+          strokeWidth="2" 
+          strokeLinecap="round" 
+          strokeLinejoin="round"
+          className="transform -rotate-90"
+        >
+          <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+          <path d="M12 18h.01"></path>
+        </svg>
+      </div>
+      <h2 className="text-2xl font-bold mb-4">Please Rotate Your Device</h2>
+      <p className="text-lg opacity-80">
+        For the best experience designing your whiteboard, please use landscape mode.
+      </p>
+    </div>
+  );
+};
+
 const Whiteboard = ({ onOpenMotorControl }) => {
   const { darkMode } = useTheme();
   const [elements, setElements] = useState([]);
@@ -209,8 +237,28 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   const [textRenderingStyle, setTextRenderingStyle] = useState('filled'); // 'filled' or 'outline'
   const [isDragOver, setIsDragOver] = useState(false);
   const [canvasScale, setCanvasScale] = useState(1);
+  const [isPortraitMobile, setIsPortraitMobile] = useState(false);
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
+
+  // Check for mobile portrait orientation
+  useEffect(() => {
+    const checkOrientation = () => {
+      // Check if device is mobile (width < 768px) and in portrait mode (height > width)
+      const isMobile = window.innerWidth < 768;
+      const isPortrait = window.innerHeight > window.innerWidth;
+      setIsPortraitMobile(isMobile && isPortrait);
+    };
+
+    checkOrientation();
+    window.addEventListener('resize', checkOrientation);
+    window.addEventListener('orientationchange', checkOrientation);
+    
+    return () => {
+      window.removeEventListener('resize', checkOrientation);
+      window.removeEventListener('orientationchange', checkOrientation);
+    };
+  }, []);
 
   // Update selected color when theme changes
   useEffect(() => {
@@ -1042,6 +1090,8 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   return (
     <div className={getThemeClasses('min-h-screen transition-colors duration-300',
       { light: 'bg-gray-50 text-gray-900', dark: 'bg-gray-900 text-white' }, darkMode)}>
+
+      {isPortraitMobile && <RotatePrompt />}
 
   <Navbar onOpenMotorControl={onOpenMotorControl} />
 

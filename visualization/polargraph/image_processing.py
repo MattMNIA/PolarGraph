@@ -33,13 +33,13 @@ def smooth_path(path, radius=3):
 
 def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
                           x: float = 0, y: float = 0, width: Optional[float] = None, height: Optional[float] = None,
-                          threshold: int = 128, simplify: int = 10) -> Tuple[List[List[Point]], List[List[Point]], dict]:
+                          threshold: int = 128, simplify: float = 0.5) -> Tuple[List[List[Point]], List[List[Point]], dict]:
     """Load an image and return (pixel_paths, scaled_paths).
 
     pixel_paths: contours in resized image pixel coordinates.
     scaled_paths: contours scaled and centered on the board.
     - threshold: not used anymore, kept for compatibility.
-    - simplify: approx polygon epsilon in pixels (smaller -> more detailed)
+    - simplify: approx polygon epsilon in pixels (smaller -> more detailed). Default 0.5.
     Uses Canny edge detection for cleaner contours.
     Requires OpenCV. Raises ImportError with guidance if cv2 not present.
     """
@@ -75,12 +75,13 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
     equalized = clahe.apply(arr)
     arr_equalized = cv2.addWeighted(arr, 0.7, equalized, 0.3, 0)
 
-    # Apply Gaussian blur to reduce noise
-    blurred = cv2.GaussianBlur(arr_equalized, (9, 9), 0)
+    # Apply Bilateral Filter to preserve edges while smoothing noise (texture)
+    # Reduced sigma values to catch finer details (windows) while still suppressing noise
+    blurred = cv2.bilateralFilter(arr_equalized, 7, 50, 50)
     # Detect edges using Canny with fixed thresholds
     # Calculate median and sigma-based thresholds for Canny
     v = float(np.median(blurred.astype(np.float32)))
-    sigma = 0.2
+    sigma = 0.4
     lower = int(max(0, (1.0 - sigma) * v))
     upper = int(min(255, (1.0 + sigma) * v))
     edges = cv2.Canny(blurred, lower, upper)
@@ -91,9 +92,12 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
 
     paths = []
     for cnt in contours:
+        if simplify > 0:
+            cnt = cv2.approxPolyDP(cnt, simplify, False)
+
         path = [(float(p[0][0]), float(p[0][1])) for p in cnt]
         if len(path) > 1:
-            path = smooth_path(path, radius=2)  # optional smoothing
+            path = smooth_path(path, radius=2)  # restored smoothing
             paths.append(path)
 
     # Scale to board with specified position

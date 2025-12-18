@@ -272,7 +272,7 @@ def merge_contours(contours: List[List[Point]], threshold: float = 1.0) -> List[
     return merged
 
 
-def combine_image_paths(image_path_sets: List[List[List[Point]]], step_mm: float = step_mm, pen_up_threshold_mm: float = 1.0) -> List[Tuple[float, float, bool]]:
+def combine_image_paths(image_path_sets: List[List[List[Point]]], step_mm: float = step_mm, pen_up_threshold_mm: float = 3.0) -> List[Tuple[float, float, bool]]:
     """Combine paths from multiple images into a single optimized path.
 
     Args:

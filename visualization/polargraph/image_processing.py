@@ -332,7 +332,7 @@ def image_to_hatch_paths(image_path: str, board_width: int, board_height: int,
 
 def image_to_dark_fill_paths(image_path: str, board_width: int, board_height: int,
                         x: float = 0, y: float = 0, width: Optional[float] = None, height: Optional[float] = None,
-                        spacing: float = 2.0, threshold: int = 128, angle: int = 45) -> Tuple[List[List[Point]], List[List[Point]], dict]:
+                        spacing: float = 1, threshold: int = 128, angle: int = 45) -> Tuple[List[List[Point]], List[List[Point]], dict]:
     """Load an image and return (pixel_paths, scaled_paths) using dark fill (hatching).
 
     pixel_paths: fill lines in resized image pixel coordinates.

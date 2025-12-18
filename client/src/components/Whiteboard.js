@@ -95,7 +95,7 @@ const Navbar = ({ onOpenMotorControl }) => {
       <div className="max-w-6xl mx-auto px-6 safe-area-px">
         <div className="flex justify-between h-16">
           <div className="flex items-center">
-            <h1 className="text-xl font-bold text-gray-900 dark:text-white">
+            <h1 className="px-4 text-xl font-bold text-gray-900 dark:text-white">
               Whiteboard Designer
             </h1>
           </div>

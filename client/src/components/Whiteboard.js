@@ -178,7 +178,7 @@ const Footer = () => {
       { light: 'bg-white border-gray-200', dark: 'bg-gray-900 border-gray-800' }, darkMode)}>
       <div className={theme.styles.container}>
         <div className="flex flex-col md:flex-row justify-between items-center">
-          <div className="mb-6 md:mb-0">
+          <div className="px-8 mb-6 md:mb-0">
             <h2 className="text-xl font-bold">
               <span className={getThemeClasses('', { light: 'text-blue-600', dark: 'text-blue-400' }, darkMode)}>
                 Whiteboard Designer
@@ -186,7 +186,7 @@ const Footer = () => {
             </h2>
             <p className="mt-2 opacity-80">Built with React & TailwindCSS</p>
           </div>
-          <div className="text-center md:text-right">
+          <div className="text-center md:text-right px-4">
             <p className="opacity-60 text-sm">
               © {new Date().getFullYear()} Whiteboard Designer. All rights reserved.
             </p>
@@ -1442,7 +1442,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                 <p className="opacity-90">Drag and resize your elements on the whiteboard, or drag & drop images here</p>
               </motion.div>
 
-              <div className="flex-1 flex items-center justify-center min-h-[400px]">
+              <div className="flex-1 flex items-center justify-center min-h-[200px]">
                 <motion.div
                   {...theme.animations.fadeInUp}
                   ref={canvasRef}

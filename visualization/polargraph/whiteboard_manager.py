@@ -3,7 +3,7 @@
 from typing import List, Tuple, Dict, Optional, Any
 from dataclasses import dataclass
 import math
-from PIL import Image
+from PIL import Image, ImageOps
 import numpy as np
 
 try:
@@ -76,7 +76,9 @@ class WhiteboardManager:
         for placement in self.images:
             try:
                 # Load and resize image
-                img = Image.open(placement.image_path).convert('RGB')
+                img = Image.open(placement.image_path)
+                img = ImageOps.exif_transpose(img)
+                img = img.convert('RGB')
                 # Use high-quality resampling (3 = BICUBIC/LANCZOS equivalent)
                 img_resized = img.resize((int(placement.width), int(placement.height)), 3)
                 img_array = np.array(img_resized)

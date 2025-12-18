@@ -71,7 +71,7 @@ export const theme = {
       },
       body: 'opacity-90',
     },
-    container: 'px-6',
+    container: 'px-6 safe-area-px',
     divider: {
       base: 'h-1 w-20 mx-auto',
       light: 'bg-blue-600',

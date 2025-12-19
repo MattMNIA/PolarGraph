@@ -70,25 +70,30 @@ def image_to_contour_paths(image_path: str, board_width: int, board_height: int,
     img_process = img.resize((process_w, process_h), 3)  # 3 = BICUBIC/LANCZOS
     arr = np.array(img_process)
 
-    # Use milder CLAHE (lower clipLimit, larger tiles) and blend with original to reduce the effect
-    clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(16, 16))
+    # Use stronger CLAHE to equalize lighting (helps with shadows on faces)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
     equalized = clahe.apply(arr)
-    arr_equalized = cv2.addWeighted(arr, 0.7, equalized, 0.3, 0)
+    # Blend to keep some natural look but boost shadows
+    arr_equalized = cv2.addWeighted(arr, 0.6, equalized, 0.4, 0)
 
     # Apply Bilateral Filter to preserve edges while smoothing noise (texture)
-    # Reduced sigma values to catch finer details (windows) while still suppressing noise
-    blurred = cv2.bilateralFilter(arr_equalized, 7, 50, 50)
-    # Detect edges using Canny with fixed thresholds
+    # d=7, sigmaColor=75, sigmaSpace=75 balances detail preservation with noise removal
+    blurred = cv2.bilateralFilter(arr_equalized, 7, 75, 75)
+    
+    # Detect edges using Canny
     # Calculate median and sigma-based thresholds for Canny
     v = float(np.median(blurred.astype(np.float32)))
-    sigma = 0.4
+    
+    # Use a relatively tight sigma to avoid picking up noise from the boosted contrast
+    sigma = 0.33
     lower = int(max(0, (1.0 - sigma) * v))
     upper = int(min(255, (1.0 + sigma) * v))
-    edges = cv2.Canny(blurred, lower, upper)
+    
+    edges = cv2.Canny(blurred, lower, upper, L2gradient=True)
     # Find contours
     contours, _ = cv2.findContours(edges, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
     # Filter out small contours
-    contours = [cnt for cnt in contours if len(cnt) > 10]
+    contours = [cnt for cnt in contours if len(cnt) > 6]
 
     def get_centerline(cnt):
         """Convert a thin closed contour (loop) into a single open stroke."""
@@ -366,9 +371,48 @@ def image_to_dark_fill_paths(image_path: str, board_width: int, board_height: in
     # Smooth small noise
     gray = cv2.GaussianBlur(arr, (9, 9), 0)
     
-    # Generate fill lines
-    # Use adaptive=False for fixed spacing (sweeping)
-    pixel_paths = generate_hatch_lines(gray, spacing=spacing, angle=angle, brightness_threshold=threshold)
+    # Generate fill lines using concentric contours (3D printer style infill)
+    # Threshold to get binary mask of dark areas (dark pixels become white for contour detection)
+    _, binary = cv2.threshold(gray, threshold, 255, cv2.THRESH_BINARY_INV)
+    
+    pixel_paths = []
+    
+    # Determine erosion kernel based on spacing
+    # spacing is in pixels. We want to erode by 'spacing' amount each step.
+    kernel_radius = int(round(spacing))
+    if kernel_radius < 1:
+        kernel_radius = 1
+    kernel_size = 2 * kernel_radius + 1
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (kernel_size, kernel_size))
+    
+    temp_binary = binary.copy()
+    
+    # Limit iterations to prevent infinite loops
+    max_iter = max(arr.shape) // max(1, kernel_radius) + 10
+    
+    for _ in range(max_iter):
+        if cv2.countNonZero(temp_binary) == 0:
+            break
+            
+        # Find contours of the current layer
+        contours, _ = cv2.findContours(temp_binary, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+        
+        for cnt in contours:
+            if len(cnt) > 10: # Filter small noise
+                # Simplify slightly to reduce point count and noise
+                cnt = cv2.approxPolyDP(cnt, 0.5, True)
+                
+                path = [(float(p[0][0]), float(p[0][1])) for p in cnt]
+                
+                # Close the loop explicitly
+                if len(path) > 2:
+                    path.append(path[0])
+                    # Optional: Smooth the path slightly
+                    path = smooth_path(path, radius=1)
+                    pixel_paths.append(path)
+        
+        # Erode for next layer (move inwards)
+        temp_binary = cv2.erode(temp_binary, kernel, iterations=1)
 
     # Optimize path order to minimize pen lifts
     # Sort paths by their starting point to find the nearest neighbor

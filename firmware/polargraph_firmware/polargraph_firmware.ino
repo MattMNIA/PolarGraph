@@ -9,8 +9,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
-constexpr char WIFI_SSID[] = "REDACTED_SSID";
-constexpr char WIFI_PASS[] = "REDACTED_PASSWORD";
+#include "secrets.h"
 
 constexpr float R_SENSE = 0.11f;
 

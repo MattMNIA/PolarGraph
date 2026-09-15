@@ -1,8 +1,7 @@
 # Theme and UI system
 
-This app follows the brand spec in `../../PortfolioSite/DESIGN_SYSTEM.md`. That
-document is the source of truth for colour, spacing, type, radii and motion — read
-it first. This file only covers how the spec is wired up here.
+The design language here is shared with my portfolio site: one blue accent, one gray ramp,
+class-based dark mode, system font stack. This file covers how that is wired up in this app.
 
 ## Files
 

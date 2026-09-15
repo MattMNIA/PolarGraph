@@ -112,6 +112,14 @@ dmypy.json
 # Local development
 local_settings.py
 db.sqlite3
-CAD/
+visualization/camera/
 
-visualization/camera
+# Design source files kept out of the repo (large binaries / personal notes)
+CAD/
+PCB/
+BOM.xlsx
+name.txt
+temp.txt
+
+# Firmware secrets (copy secrets.example.h -> secrets.h and fill in)
+secrets.h

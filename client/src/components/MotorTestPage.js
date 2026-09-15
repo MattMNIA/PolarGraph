@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { ArrowDownLeft, ArrowUpRight, Activity } from 'lucide-react';
+import { Button, Card, CardHeader, Container, Field, Select, TextInput } from './ui';
 
 const defaultControllerUrl = 'http://192.168.50.97';
 const motors = [
@@ -83,95 +85,91 @@ export function MotorTestPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 text-gray-900">
-      <div className="max-w-5xl mx-auto py-10 px-6">
-        <h1 className="text-3xl font-semibold mb-6">Motor Controller Test</h1>
-        <div className="bg-white rounded-xl shadow-md p-6 mb-8">
-          <div className="grid gap-4 md:grid-cols-2">
-            <label className="flex flex-col">
-              <span className="font-medium mb-1">Controller Base URL</span>
-              <input
-                className="border rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200"
+    <div className="min-h-screen bg-gray-100 py-12 text-gray-900 transition-colors duration-300 dark:bg-gray-800 dark:text-white md:py-16">
+      <Container className="space-y-8">
+        <div>
+          <h1 className="text-3xl font-bold md:text-4xl">Motor Controller Test</h1>
+          <div className="mt-4 h-1 w-20 rounded-full bg-blue-600 dark:bg-blue-500" />
+          <p className="mt-6 max-w-2xl text-lg opacity-90">
+            Drive a single motor directly to check wiring, direction and step calibration.
+          </p>
+        </div>
+
+        <Card className="space-y-6 p-6 md:p-8">
+          <CardHeader title="Move command" description="Sent straight to the controller, bypassing the path queue." />
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Controller base URL" htmlFor="test-url">
+              <TextInput
+                id="test-url"
                 placeholder="http://192.168.x.x"
                 value={controllerUrl}
                 onChange={(event) => setControllerUrl(event.target.value)}
+                inputMode="url"
+                autoComplete="off"
+                spellCheck="false"
               />
-            </label>
-            <label className="flex flex-col">
-              <span className="font-medium mb-1">Motor</span>
-              <select
-                className="border rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200"
-                value={motor}
-                onChange={(event) => setMotor(event.target.value)}
-              >
+            </Field>
+
+            <Field label="Motor" htmlFor="test-motor">
+              <Select id="test-motor" value={motor} onChange={(event) => setMotor(event.target.value)}>
                 {motors.map((option) => (
                   <option key={option.id} value={option.id}>
                     {option.label}
                   </option>
                 ))}
-              </select>
-            </label>
-            <label className="flex flex-col">
-              <span className="font-medium mb-1">Step Count</span>
-              <input
+              </Select>
+            </Field>
+
+            <Field label="Step count" htmlFor="test-steps">
+              <TextInput
+                id="test-steps"
                 type="number"
-                className="border rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200"
                 value={steps}
                 onChange={(event) => setSteps(event.target.value)}
               />
-            </label>
-            <label className="flex flex-col">
-              <span className="font-medium mb-1">Speed (steps/sec)</span>
-              <input
+            </Field>
+
+            <Field label="Speed" hint="Steps per second" htmlFor="test-speed">
+              <TextInput
+                id="test-speed"
                 type="number"
-                className="border rounded-lg px-3 py-2 focus:outline-none focus:ring focus:ring-blue-200"
                 value={speed}
                 onChange={(event) => setSpeed(event.target.value)}
               />
-            </label>
+            </Field>
           </div>
 
-          <div className="mt-6 flex flex-wrap gap-3">
-            <button
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg shadow hover:bg-blue-700 disabled:opacity-60"
-              disabled={busy}
-              onClick={() => handleMove('forward')}
-            >
-              Move Forward
-            </button>
-            <button
-              className="px-4 py-2 bg-indigo-600 text-white rounded-lg shadow hover:bg-indigo-700 disabled:opacity-60"
-              disabled={busy}
-              onClick={() => handleMove('backward')}
-            >
-              Move Backward
-            </button>
-            <button
-              className="px-4 py-2 bg-gray-200 text-gray-800 rounded-lg shadow hover:bg-gray-300 disabled:opacity-60"
-              disabled={busy}
-              onClick={handleStatus}
-            >
-              Check Status
-            </button>
+          <div className="flex flex-wrap gap-3">
+            <Button variant="primary" size="md" icon={ArrowUpRight} disabled={busy} onClick={() => handleMove('forward')}>
+              Move forward
+            </Button>
+            <Button variant="secondary" size="md" icon={ArrowDownLeft} disabled={busy} onClick={() => handleMove('backward')}>
+              Move backward
+            </Button>
+            <Button variant="secondary" size="md" icon={Activity} disabled={busy} onClick={handleStatus}>
+              Check status
+            </Button>
           </div>
-        </div>
+        </Card>
 
-        <section>
-          <h2 className="text-xl font-semibold mb-4">Activity Log</h2>
-          <div className="bg-gray-900 text-gray-100 rounded-xl p-4 h-64 overflow-auto text-sm">
+        <Card className="space-y-4 p-6 md:p-8">
+          <CardHeader title="Activity log" description="The last 20 requests and responses." />
+
+          <div className="h-72 overflow-auto rounded-lg bg-gray-900 p-4 text-sm text-gray-100 dark:bg-gray-950">
             {log.length === 0 ? (
               <p className="opacity-60">No requests yet. Commands and responses will appear here.</p>
             ) : (
-              <ul className="space-y-3">
+              <ul className="space-y-4">
                 {log.map((entry, index) => (
                   <li key={`${entry.timestamp}-${index}`}>
-                    <div className="flex justify-between text-xs uppercase tracking-wide opacity-70 mb-1">
+                    <div className="mb-1 flex justify-between text-xs uppercase tracking-wide opacity-60">
                       <span>{entry.type}</span>
                       <span>{new Date(entry.timestamp).toLocaleTimeString()}</span>
                     </div>
                     <div className="font-medium">{entry.message}</div>
                     {entry.payload && (
-                      <pre className="mt-1 bg-gray-800 rounded-lg p-2 overflow-auto">
+                      <pre className="mt-2 overflow-auto rounded-lg bg-gray-800 p-3 text-xs">
                         {JSON.stringify(entry.payload, null, 2)}
                       </pre>
                     )}
@@ -180,8 +178,8 @@ export function MotorTestPage() {
               </ul>
             )}
           </div>
-        </section>
-      </div>
+        </Card>
+      </Container>
     </div>
   );
 }

@@ -1,4 +1,13 @@
 // src/theme.js
+//
+// Brand tokens for the Whiteboard Designer.
+// These follow ../../PortfolioSite/DESIGN_SYSTEM.md so this app reads as the same
+// brand as mattmn.com: one blue accent on a neutral gray ladder, generous vertical
+// air, soft-cornered cards floating on flat section bands, hierarchy by opacity,
+// and one 20px-rise fade for everything.
+
+export const cn = (...classes) => classes.filter(Boolean).join(' ');
+
 export const theme = {
   colors: {
     primary: {
@@ -25,84 +34,62 @@ export const theme = {
       800: '#1f2937',
       900: '#111827',
     },
-    success: {
-      50: '#f0fdf4',
-      500: '#22c55e',
-      900: '#14532d',
-    },
-    warning: {
-      50: '#fffbeb',
-      500: '#f59e0b',
-      900: '#78350f',
-    },
-    error: {
-      50: '#fef2f2',
-      500: '#ef4444',
-      900: '#7f1d1d',
+  },
+
+  // Page background pairs, used to drive <body> so safe areas never flash white.
+  page: {
+    light: '#f9fafb', // gray-50
+    dark: '#111827', // gray-900
+  },
+
+  layout: {
+    // One width for the whole app.
+    container: 'mx-auto w-full max-w-6xl px-5 sm:px-6 safe-area-px',
+    section: 'py-16 md:py-24',
+    sectionTight: 'py-12 md:py-16',
+    // Bands alternate down the page; there are no rules between sections.
+    band: {
+      a: 'bg-gray-50 dark:bg-gray-900',
+      b: 'bg-gray-100 dark:bg-gray-800',
     },
   },
-  styles: {
-    section: {
-      base: 'py-3',
-      light: 'bg-gray-100',
-      dark: 'bg-gray-800',
-    },
-    card: {
-      base: 'p-6 rounded-xl shadow-lg transition-all duration-300',
-      light: 'bg-white',
-      dark: 'bg-gray-900',
-    },
-    button: {
-      primary: {
-        base: 'px-6 py-3 rounded-lg font-semibold transition-colors',
-        light: 'bg-blue-600 hover:bg-blue-700 text-white',
-        dark: 'bg-blue-500 hover:bg-blue-600 text-white',
-      },
-      secondary: {
-        base: 'text-sm',
-        light: 'text-blue-600 hover:text-blue-500',
-        dark: 'text-blue-400 hover:text-blue-300',
-      },
-    },
-    text: {
-      heading: {
-        primary: 'text-3xl md:text-4xl font-bold mb-4',
-        secondary: 'text-xl font-bold mb-2',
-      },
-      body: 'opacity-90',
-    },
-    container: 'px-6 safe-area-px',
-    divider: {
-      base: 'h-1 w-20 mx-auto',
-      light: 'bg-blue-600',
-      dark: 'bg-blue-500',
-    },
+
+  surface: {
+    // Cards always step *away* from their band: lighter in light, darker in dark.
+    card: 'rounded-xl shadow-lg transition-colors duration-300 bg-white dark:bg-gray-900',
+    // Inset areas inside a card (image frames, status panels, empty states).
+    well: 'rounded-lg border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800/60',
   },
+
   animations: {
     fadeInUp: {
       initial: { opacity: 0, y: 20 },
       whileInView: { opacity: 1, y: 0 },
-      viewport: { once: true },
+      viewport: { once: true, margin: '-40px' },
       transition: { duration: 0.6 },
     },
-    staggerContainer: {
-      initial: {},
-      whileInView: {},
-      viewport: { once: true },
-      transition: { staggerChildren: 0.1 },
-    },
-    staggerItem: {
-      initial: { opacity: 0, y: 20 },
-      whileInView: { opacity: 1, y: 0 },
-      transition: { duration: 0.5 },
+    fadeIn: {
+      initial: { opacity: 0 },
+      animate: { opacity: 1 },
+      transition: { duration: 0.4 },
     },
     hover: {
       whileHover: { scale: 1.05 },
-      whileTap: { scale: 0.95 }
+      whileTap: { scale: 0.95 },
+    },
+    hoverSubtle: {
+      whileHover: { scale: 1.02 },
+      whileTap: { scale: 0.98 },
     },
   },
 };
 
-export const getThemeClasses = (base, variants, darkMode) => {
-  return `${base} ${darkMode ? variants.dark : variants.light}`;
-};
+// Adds a delay to the house transition without mutating it.
+export const fadeInUpDelayed = (delay = 0) => ({
+  ...theme.animations.fadeInUp,
+  transition: { ...theme.animations.fadeInUp.transition, delay },
+});
+
+// Kept for call sites that still pick classes from a darkMode boolean.
+export const getThemeClasses = (base, variants, darkMode) =>
+  cn(base, darkMode ? variants.dark : variants.light);

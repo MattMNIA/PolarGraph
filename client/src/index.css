@@ -2,40 +2,131 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Brand tokens for the handful of things Tailwind classes can't reach
+   (range thumbs, scrollbars, canvas guides). Mirrors ../PortfolioSite
+   DESIGN_SYSTEM.md §8. */
+:root {
+  --bg-page: #f9fafb; /* gray-50  */
+  --bg-band: #f3f4f6; /* gray-100 */
+  --surface: #ffffff;
+  --border: #e5e7eb; /* gray-200 */
+  --rail: #d1d5db; /* gray-300 */
+  --fg: #111827; /* gray-900 */
+  --accent: #2563eb; /* blue-600 */
+  --accent-fill: #2563eb; /* blue-600 */
+  --grid-line: rgba(17, 24, 39, 0.06);
+}
+
+:root.dark {
+  --bg-page: #111827; /* gray-900 */
+  --bg-band: #1f2937; /* gray-800 */
+  --surface: #111827;
+  --border: #1f2937;
+  --rail: #374151; /* gray-700 */
+  --fg: #ffffff;
+  --accent: #60a5fa; /* blue-400 — text  */
+  --accent-fill: #3b82f6; /* blue-500 — fills */
+  --grid-line: rgba(255, 255, 255, 0.05);
+}
+
+html {
+  scroll-behavior: smooth;
+}
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  background-color: var(--bg-page);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Stops iOS rubber-banding from exposing a white strip behind the app. */
+  overscroll-behavior-y: none;
 }
 
 code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
 }
 
-/* React Resizable Styles */
-.react-resizable {
-  position: relative;
+/* ------------------------------------------------------------------ range */
+
+.ui-range {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--rail);
+  outline: none;
+  cursor: pointer;
 }
 
-.react-resizable-handle {
-  position: absolute;
-  width: 20px;
-  height: 20px;
-  bottom: 0;
-  right: 0;
-  background: url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNiIgaGVpZ2h0PSI2IiB2aWV3Qm94PSIwIDAgNiA2IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPgo8cGF0aCBkPSJNMy41IDMuNUwxLjUgNS41SDMuNVYzLjVaIiBmaWxsPSIjZmZmZmZmIi8+CjxwYXRoIGQ9Ik0zLjUgMy41TDEuNSA1LjVIMy41VjMuNVoiIGZpbGw9IiM5OTk5OTkiLz4KPHBhdGggZD0iTTMuNSAzLjVMMCA2SDMuNVYzLjVaIiBmaWxsPSIjZmZmZmZmIi8+CjxwYXRoIGQ9Ik0zLjUgMy41TDAgNkgzLjVWMi41WiIgZmlsbD0iIzk5OTk5OTkiLz4KPC9zdmc+Cg==') no-repeat center center;
-  padding: 0 3px 3px 0;
-  background-size: 12px;
-  background-position: bottom right;
-  cursor: nw-resize;
+.ui-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 9999px;
+  background: var(--accent-fill);
+  border: 2px solid var(--surface);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
 }
 
-/* Safe Area Utilities */
+.ui-range::-moz-range-thumb {
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 2px solid var(--surface);
+  border-radius: 9999px;
+  background: var(--accent-fill);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+
+.ui-range:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.4);
+}
+
+/* ------------------------------------------------------------- board grid */
+
+.board-surface {
+  background-image: linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* ---------------------------------------------------------- element chrome
+
+   Delete / resize affordances reveal on hover for mouse users, but a touch
+   device never hovers — there they stay visible so elements can actually be
+   removed and resized on a phone. */
+
+.el-chrome {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.group:hover .el-chrome,
+.group:focus-within .el-chrome {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .el-chrome {
+    opacity: 1;
+  }
+
+  /* Bigger targets for fingers. */
+  .el-handle {
+    width: 2rem;
+    height: 2rem;
+  }
+
+  .el-delete {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+}
+
+/* --------------------------------------------------------- safe-area pads */
+
 .safe-area-pl {
   padding-left: env(safe-area-inset-left);
 }
@@ -43,6 +134,22 @@ code {
   padding-right: env(safe-area-inset-right);
 }
 .safe-area-px {
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
+  padding-left: max(env(safe-area-inset-left), 0px);
+  padding-right: max(env(safe-area-inset-right), 0px);
+}
+
+/* ------------------------------------------------------------ reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

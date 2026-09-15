@@ -3,6 +3,7 @@ import { ThemeProvider } from './components/ThemeProvider';
 import Whiteboard from './components/Whiteboard';
 import MotorTestPage from './components/MotorTestPage';
 import MotorControlPage from './components/MotorControlPage';
+import { Button } from './components/ui';
 
 const VIEW_WHITEBOARD = 'whiteboard';
 const VIEW_CONTROL = 'control';
@@ -30,13 +31,9 @@ function App() {
           <>
             {showMotorTest && (
               <div className="fixed bottom-6 left-6 z-50">
-                <button
-                  type="button"
-                  onClick={toggleMotorTest}
-                  className="px-4 py-2 rounded-lg shadow bg-blue-600 text-white hover:bg-blue-700 transition"
-                >
+                <Button variant="primary" size="sm" className="shadow-lg" onClick={toggleMotorTest}>
                   {isWhiteboard ? 'Open Motor Test' : 'Back to Designer'}
-                </button>
+                </Button>
               </div>
             )}
             {isWhiteboard || !showMotorTest ? (

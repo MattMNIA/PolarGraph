@@ -1,6 +1,7 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "Whiteboard",
+  "name": "Whiteboard Designer",
+  "description": "Design whiteboard layouts and drive the polargraph plotter.",
   "icons": [
     {
       "src": "favicon.ico",
@@ -20,6 +21,6 @@
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "theme_color": "#111827",
+  "background_color": "#111827"
 }

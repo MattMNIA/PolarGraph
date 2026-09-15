@@ -1,11 +1,48 @@
 // src/components/Whiteboard.js
-import React, { useState, useRef, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTheme } from './ThemeProvider';
-import { theme, getThemeClasses } from '../theme';
-import { Play, Pause, Download, Upload, Type, Palette, Settings, Eye, EyeOff, ChevronUp, Trash2, Sun, Moon, Loader2 } from 'lucide-react';
+import { theme, cn } from '../theme';
+import {
+  Play,
+  Pause,
+  Download,
+  Upload,
+  Type,
+  Trash2,
+  ChevronUp,
+  Sun,
+  Moon,
+  Loader2,
+  Sparkles,
+  SlidersHorizontal,
+  Image as ImageIcon,
+  Cpu,
+  Square,
+  Settings,
+} from 'lucide-react';
 import { buildApiUrl, fetchPathStatus } from '../utils/api';
-import { useMemo } from 'react';
+import {
+  Button,
+  Card,
+  CardHeader,
+  Container,
+  EmptyState,
+  Field,
+  Label,
+  Pill,
+  ProgressBar,
+  RangeInput,
+  Section,
+  SectionHeader,
+  SegmentedControl,
+  Select,
+  Spinner,
+  StatGrid,
+  Switch,
+  TextInput,
+  ToggleButton,
+} from './ui';
 
 const CANVAS_WIDTH = 900;
 const CANVAS_HEIGHT = 550;
@@ -19,6 +56,9 @@ const SCALE_Y = BOARD_HEIGHT_MM / CANVAS_HEIGHT;
 const MARGIN_X_PX = MARGIN_MM / SCALE_X;
 const MARGIN_Y_PX = MARGIN_MM / SCALE_Y;
 
+const MARGIN_X_PCT = (MARGIN_X_PX / CANVAS_WIDTH) * 100;
+const MARGIN_Y_PCT = (MARGIN_Y_PX / CANVAS_HEIGHT) * 100;
+
 const MIN_ELEMENT_WIDTH = 1;
 const MIN_ELEMENT_HEIGHT = 1;
 const RESIZE_MIN_WIDTH = 50;
@@ -28,6 +68,25 @@ const SPEED_OPTIONS = [
   { label: 'Moderate', value: 5000 },
   { label: 'Fast', value: 9000 },
   { label: 'Extreme', value: 15000 },
+];
+
+const FONT_OPTIONS = ['Inter', 'Arial', 'Times New Roman', 'Courier New', 'Georgia', 'Verdana'];
+
+const DRAWING_METHODS = [
+  { value: 'contour', label: 'Contour', hint: 'Traces edges' },
+  { value: 'hatch', label: 'Hatch', hint: 'Cross-hatching' },
+  { value: 'fill', label: 'Fill', hint: '2mm sweep' },
+];
+
+const TEXT_STYLES = [
+  { value: 'filled', label: 'Filled' },
+  { value: 'outline', label: 'Outline' },
+];
+
+const NAV_LINKS = [
+  { href: '#design', label: 'Design' },
+  { href: '#preview', label: 'Preview' },
+  { href: '#controller', label: 'Controller' },
 ];
 
 const clamp = (value, min, max) => {
@@ -80,150 +139,112 @@ const mergeJobStatus = (update, previous) => {
   }
   return merged;
 };
-// Navbar Component
+
+const statusTone = (status) => {
+  if (status === 'failed') return 'danger';
+  if (status && ACTIVE_JOB_STATUSES.has(status)) return 'accent';
+  return 'neutral';
+};
+
+// Navigation ----------------------------------------------------------------
+
 const Navbar = ({ onOpenMotorControl }) => {
   const { darkMode, toggleTheme } = useTheme();
   const handleOpenMotorControl = typeof onOpenMotorControl === 'function' ? onOpenMotorControl : null;
 
   return (
     <motion.nav
-      initial={{ y: -100 }}
+      initial={{ y: -64 }}
       animate={{ y: 0 }}
-      className={getThemeClasses('border-b',
-        { light: 'bg-white border-gray-200', dark: 'bg-gray-900 border-gray-800' }, darkMode)}
+      transition={{ duration: 0.4 }}
+      className="fixed inset-x-0 top-0 z-50 border-b border-gray-200 bg-white/80 backdrop-blur-lg dark:border-gray-800 dark:bg-gray-900/80"
     >
-      <div className="max-w-6xl mx-auto px-6 safe-area-px">
-        <div className="flex justify-between h-16">
-          <div className="flex items-center">
-            <h1 className="px-4 text-xl font-bold text-gray-900 dark:text-white">
-              Whiteboard Designer
-            </h1>
-          </div>
-          <div className="flex items-center space-x-4">
-            {handleOpenMotorControl && (
-              <motion.button
-                onClick={handleOpenMotorControl}
-                className={getThemeClasses(
-                  'flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors',
-                  { light: 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100', dark: 'bg-blue-900 border-blue-700 text-blue-200 hover:bg-blue-800' },
-                  darkMode
-                )}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
+      <Container className="flex h-16 items-center justify-between gap-4">
+        <a href="#top" className="text-xl font-bold text-blue-600 dark:text-blue-400">
+          Whiteboard<span className="hidden sm:inline"> Designer</span>
+        </a>
+
+        <div className="flex items-center gap-2 md:gap-6">
+          <div className="hidden items-center gap-6 md:flex">
+            {NAV_LINKS.map((link) => (
+              <a
+                key={link.href}
+                href={link.href}
+                className="text-sm font-medium opacity-80 transition-colors hover:text-blue-600 hover:opacity-100 dark:hover:text-blue-400"
               >
-                <Settings className="w-4 h-4" />
+                {link.label}
+              </a>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2">
+            {handleOpenMotorControl && (
+              <Button variant="secondary" size="sm" icon={Settings} onClick={handleOpenMotorControl}>
                 <span className="hidden sm:inline">Motor Control</span>
-              </motion.button>
+              </Button>
             )}
-            <motion.button
+            <Button
+              variant="icon"
+              size="icon"
               onClick={toggleTheme}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+              aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
             >
-              {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            </motion.button>
+              {darkMode ? <Sun size={20} /> : <Moon size={20} />}
+            </Button>
           </div>
         </div>
-      </div>
+      </Container>
     </motion.nav>
   );
 };
 
-// Scroll to Top Button
 const ScrollToTopButton = () => {
-  const { darkMode } = useTheme();
   const [showScrollTop, setShowScrollTop] = useState(false);
 
-  React.useEffect(() => {
-    const handleScroll = () => {
-      setShowScrollTop(window.scrollY > 400);
-    };
+  useEffect(() => {
+    const handleScroll = () => setShowScrollTop(window.scrollY > 400);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
-
-  const scrollToTop = () => {
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
 
   return (
     <AnimatePresence>
       {showScrollTop && (
         <motion.button
+          type="button"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 20 }}
-          onClick={scrollToTop}
-          className={getThemeClasses(
-            'fixed bottom-6 right-6 p-3 rounded-full shadow-lg transition-colors z-50',
-            { light: 'bg-white hover:bg-gray-100', dark: 'bg-gray-800 hover:bg-gray-700' }, darkMode
-          )}
+          onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
+          aria-label="Back to top"
+          className="fixed bottom-6 right-6 z-50 rounded-full bg-white p-3 shadow-lg transition-colors hover:bg-gray-100 dark:bg-gray-800 dark:hover:bg-gray-700"
           whileHover={{ scale: 1.1 }}
           whileTap={{ scale: 0.9 }}
         >
-          <ChevronUp className="w-6 h-6" />
+          <ChevronUp size={24} />
         </motion.button>
       )}
     </AnimatePresence>
   );
 };
 
-// Footer Component
-const Footer = () => {
-  const { darkMode } = useTheme();
-
-  return (
-    <footer className={getThemeClasses('py-10 border-t',
-      { light: 'bg-white border-gray-200', dark: 'bg-gray-900 border-gray-800' }, darkMode)}>
-      <div className={theme.styles.container}>
-        <div className="flex flex-col md:flex-row justify-between items-center">
-          <div className="px-8 mb-6 md:mb-0">
-            <h2 className="text-xl font-bold">
-              <span className={getThemeClasses('', { light: 'text-blue-600', dark: 'text-blue-400' }, darkMode)}>
-                Whiteboard Designer
-              </span>
-            </h2>
-            <p className="mt-2 opacity-80">Built with React & TailwindCSS</p>
-          </div>
-          <div className="text-center md:text-right px-4">
-            <p className="opacity-60 text-sm">
-              © {new Date().getFullYear()} Whiteboard Designer. All rights reserved.
-            </p>
-          </div>
+const Footer = () => (
+  <footer className="border-t border-gray-200 bg-white py-10 transition-colors duration-300 dark:border-gray-800 dark:bg-gray-900">
+    <Container>
+      <div className="flex flex-col items-center gap-4 text-center md:flex-row md:justify-between md:text-left">
+        <div>
+          <p className="text-xl font-bold text-blue-600 dark:text-blue-400">Whiteboard Designer</p>
+          <p className="mt-2 text-sm opacity-80">Polargraph control interface</p>
         </div>
+        <p className="text-sm opacity-60">
+          © {new Date().getFullYear()} Matthew Morgan. Built with React and Tailwind CSS.
+        </p>
       </div>
-    </footer>
-  );
-};
+    </Container>
+  </footer>
+);
 
-// Rotate Prompt Component
-const RotatePrompt = () => {
-  return (
-    <div className="fixed inset-0 z-[60] bg-black/90 flex flex-col items-center justify-center text-white p-8 text-center">
-      <div className="mb-6 animate-bounce">
-        <svg 
-          width="64" 
-          height="64" 
-          viewBox="0 0 24 24" 
-          fill="none" 
-          stroke="currentColor" 
-          strokeWidth="2" 
-          strokeLinecap="round" 
-          strokeLinejoin="round"
-          className="transform -rotate-90"
-        >
-          <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
-          <path d="M12 18h.01"></path>
-        </svg>
-      </div>
-      <h2 className="text-2xl font-bold mb-4">Please Rotate Your Device</h2>
-      <p className="text-lg opacity-80">
-        For the best experience designing your whiteboard, please use landscape mode.
-      </p>
-    </div>
-  );
-};
+// Main ----------------------------------------------------------------------
 
 const Whiteboard = ({ onOpenMotorControl }) => {
   const { darkMode } = useTheme();
@@ -237,43 +258,13 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   const [textRenderingStyle, setTextRenderingStyle] = useState('filled'); // 'filled' or 'outline'
   const [isDragOver, setIsDragOver] = useState(false);
   const [canvasScale, setCanvasScale] = useState(1);
-  const [isPortraitMobile, setIsPortraitMobile] = useState(false);
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
 
-  // Check for mobile portrait orientation
-  useEffect(() => {
-    const checkOrientation = () => {
-      // Check if device is mobile using user agent and screen dimensions
-      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
-      const isMobileDevice = /android|ipad|iphone|ipod/i.test(userAgent);
-      
-      // Only trigger for actual mobile devices, not just small windows
-      if (!isMobileDevice) {
-        setIsPortraitMobile(false);
-        return;
-      }
-
-      const isPortrait = window.innerHeight > window.innerWidth;
-      setIsPortraitMobile(isPortrait);
-    };
-
-    checkOrientation();
-    window.addEventListener('resize', checkOrientation);
-    window.addEventListener('orientationchange', checkOrientation);
-    
-    return () => {
-      window.removeEventListener('resize', checkOrientation);
-      window.removeEventListener('orientationchange', checkOrientation);
-    };
-  }, []);
-
-  // Update selected color when theme changes
+  // New text defaults to the ink colour that reads on the current theme.
+  // (The page background itself is owned by ThemeProvider.)
   useEffect(() => {
     setSelectedColor(darkMode ? '#ffffff' : '#000000');
-    // Update body background color to match theme (prevents white bars in safe areas)
-    // Dark: bg-gray-800 (#1f2937), Light: bg-gray-100 (#f3f4f6)
-    document.body.style.backgroundColor = darkMode ? '#1f2937' : '#f3f4f6';
   }, [darkMode]);
 
   const processImageFile = (file) => {
@@ -304,7 +295,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
           const minY = MARGIN_Y_PX;
           const maxX = Math.max(minX, maxCanvasWidth - MARGIN_X_PX - constrainedWidth);
           const maxY = Math.max(minY, maxCanvasHeight - MARGIN_Y_PX - constrainedHeight);
-          
+
           const randomX = minX + Math.random() * Math.max(0, maxX - minX);
           const randomY = minY + Math.random() * Math.max(0, maxY - minY);
 
@@ -319,7 +310,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
             originalWidth: img.width,
             originalHeight: img.height,
           };
-          setElements(prev => [...prev, newElement]);
+          setElements((prev) => [...prev, newElement]);
         };
         img.src = e.target.result;
       };
@@ -336,12 +327,12 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     if (textInput.trim()) {
       const width = clamp(Math.max(textInput.length * fontSize * 0.6, 150), MIN_ELEMENT_WIDTH, CANVAS_WIDTH - MARGIN_X_PX * 2);
       const height = clamp(fontSize + 20, MIN_ELEMENT_HEIGHT, CANVAS_HEIGHT - MARGIN_Y_PX * 2);
-      
+
       const minX = MARGIN_X_PX;
       const minY = MARGIN_Y_PX;
       const maxX = Math.max(minX, CANVAS_WIDTH - MARGIN_X_PX - width);
       const maxY = Math.max(minY, CANVAS_HEIGHT - MARGIN_Y_PX - height);
-      
+
       const newElement = {
         id: Date.now(),
         type: 'text',
@@ -357,7 +348,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
         width,
         height,
       };
-      setElements(prev => [...prev, newElement]);
+      setElements((prev) => [...prev, newElement]);
       setTextInput('');
     }
   };
@@ -376,7 +367,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       const minY = MARGIN_Y_PX;
       const maxX = CANVAS_WIDTH - MARGIN_X_PX - next.width;
       const maxY = CANVAS_HEIGHT - MARGIN_Y_PX - next.height;
-      
+
       next.x = clamp(next.x, minX, maxX);
       next.y = clamp(next.y, minY, maxY);
 
@@ -385,8 +376,10 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   }, []);
 
   const deleteElement = (id) => {
-    setElements(prev => prev.filter(el => el.id !== id));
+    setElements((prev) => prev.filter((el) => el.id !== id));
   };
+
+  const clearElements = () => setElements([]);
 
   // Custom drag implementation to avoid findDOMNode issues
   const [dragging, setDragging] = useState(null);
@@ -513,7 +506,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     const canvasHeight = rect.height;
     const scaleX = canvasWidth / CANVAS_WIDTH; // Display width / original canvas width
     const scaleY = canvasHeight / CANVAS_HEIGHT; // Display height / original canvas height
-    
+
     setDragOffset({
       x: e.clientX - rect.left - (element.x * scaleX),
       y: e.clientY - rect.top - (element.y * scaleY),
@@ -539,7 +532,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     if (e.target.closest('.delete-btn') || e.target.closest('.resize-handle')) return;
     // Prevent default to stop scrolling/zooming and mouse emulation
     if (e.cancelable) e.preventDefault();
-    
+
     if (!canvasRef.current) return;
     setDragging(element.id);
     const rect = canvasRef.current.getBoundingClientRect();
@@ -547,7 +540,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     const canvasHeight = rect.height;
     const scaleX = canvasWidth / CANVAS_WIDTH;
     const scaleY = canvasHeight / CANVAS_HEIGHT;
-    
+
     const touch = e.touches[0];
     setDragOffset({
       x: touch.clientX - rect.left - (element.x * scaleX),
@@ -703,7 +696,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     setResizing(null);
   }, []);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (dragging || resizing) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
@@ -718,9 +711,9 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     }
   }, [dragging, resizing, handleMouseMove, handleMouseUp, handleTouchMove, handleTouchEnd]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!canvasRef.current) return;
-    
+
     const updateScale = () => {
       if (canvasRef.current) {
         const { width } = canvasRef.current.getBoundingClientRect();
@@ -733,12 +726,12 @@ const Whiteboard = ({ onOpenMotorControl }) => {
 
     const resizeObserver = new ResizeObserver(updateScale);
     resizeObserver.observe(canvasRef.current);
-    
+
     return () => resizeObserver.disconnect();
   }, []);
 
   // Paste event listener for clipboard images
-  React.useEffect(() => {
+  useEffect(() => {
     const handlePaste = (e) => {
       const items = e.clipboardData?.items;
       if (items) {
@@ -758,8 +751,8 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   }, []);
 
   const buildVisualizationPayload = useCallback((overrides = {}) => {
-    const imageElements = elements.filter(el => el.type === 'image');
-    const textElements = elements.filter(el => el.type === 'text');
+    const imageElements = elements.filter((el) => el.type === 'image');
+    const textElements = elements.filter((el) => el.type === 'text');
 
     if (imageElements.length === 0 && textElements.length === 0) {
       return null;
@@ -772,7 +765,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     const imagePaths = [];
     const textData = [];
 
-    imageElements.forEach(element => {
+    imageElements.forEach((element) => {
       const x = Math.round(element.x * scaleX);
       const y = Math.round(element.y * scaleY);
       const width = Math.round(element.width * scaleX);
@@ -782,7 +775,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       imagePaths.push(element.src);
     });
 
-    textElements.forEach(element => {
+    textElements.forEach((element) => {
       textData.push({
         text: element.text,
         x: Math.round(element.x * scaleX),
@@ -1105,7 +1098,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     if (Number.isNaN(date.getTime())) {
       return null;
     }
-    return date.toLocaleString();
+    return date.toLocaleTimeString();
   }, [lastPathStatusAt]);
 
   const jobProgressPercent = useMemo(() => {
@@ -1121,7 +1114,7 @@ const Whiteboard = ({ onOpenMotorControl }) => {
       return 0;
     }
     return Math.min(100, Math.round((sent / total) * 100));
-  }, [pathJobStatus?.sentPoints, pathJobStatus?.totalPoints]);
+  }, [pathJobStatus]);
 
   useEffect(() => () => {
     if (statusPollRef.current) {
@@ -1130,367 +1123,101 @@ const Whiteboard = ({ onOpenMotorControl }) => {
     }
   }, []);
 
+  const hasResults = Boolean(visualizationResult || animationResult || isCreatingAnimation);
+  const jobIsActive = ACTIVE_JOB_STATUSES.has(pathJobStatus?.status);
+  const sortedElements = useMemo(
+    () => [...elements].sort((a, b) => {
+      // Sort so text elements appear above image elements
+      if (a.type === 'text' && b.type === 'image') return 1;
+      if (a.type === 'image' && b.type === 'text') return -1;
+      return 0;
+    }),
+    [elements]
+  );
+
+  const resultStats = useMemo(() => {
+    const items = [
+      {
+        label: 'Board',
+        value: `${visualizationResult?.boardWidth || BOARD_WIDTH_MM} × ${visualizationResult?.boardHeight || BOARD_HEIGHT_MM} mm`,
+      },
+      { label: 'Images', value: visualizationResult?.imageCount ?? '—' },
+      { label: 'Path points', value: visualizationResult?.pathLength?.toLocaleString?.() ?? '—' },
+      {
+        label: 'Animation',
+        value: animationResult ? `${animationResult.frameCount ?? '—'} frames` : '—',
+      },
+    ];
+    return items;
+  }, [visualizationResult, animationResult]);
+
   return (
-    <div className={getThemeClasses('min-h-screen w-full transition-colors duration-300',
-      { light: 'bg-gray-50 text-gray-900', dark: 'bg-gray-900 text-white' }, darkMode)}>
+    <div
+      id="top"
+      className="min-h-screen bg-gray-50 text-gray-900 transition-colors duration-300 dark:bg-gray-900 dark:text-white"
+    >
+      <Navbar onOpenMotorControl={onOpenMotorControl} />
 
-      {/* {isPortraitMobile && <RotatePrompt />} */}
-
-  <Navbar onOpenMotorControl={onOpenMotorControl} />
-
-      {/* Hero Section */}
-      <section className={getThemeClasses(theme.styles.section.base + ' mx-0 pt-12', theme.styles.section, darkMode)}>
-        <div className={theme.styles.container}>
-          <motion.div
-            {...theme.animations.fadeInUp}
-            className="text-center mb-4"
-          >
-            <div className="flex items-center justify-center gap-3 mb-4">
-              <h1 className={theme.styles.text.heading.primary}>
-                Whiteboard Designer
+      <main className="pt-16">
+        {/* Hero --------------------------------------------------------- */}
+        <Section band="a" tight>
+          <Container>
+            <motion.div {...theme.animations.fadeInUp} className="text-center">
+              <h1 className="text-3xl font-bold md:text-4xl">
+                Whiteboard <span className="text-blue-600 dark:text-blue-400">Designer</span>
               </h1>
-            </div>
-            <div className={getThemeClasses(theme.styles.divider.base, theme.styles.divider, darkMode)}></div>
-            <p className="text-xl max-w-2xl mx-auto opacity-90 pt-8">
-              Create stunning whiteboard layouts with images and text. Drag, resize, and customize your designs with our intuitive interface.
-            </p>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* Main Content Section - Controls + Canvas */}
-      <section className={getThemeClasses('py-2 min-h-screen', { light: 'bg-gray-100', dark: 'bg-gray-800' }, darkMode)}>
-        <div className="max-w-full px-4 safe-area-px">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 min-h-0">
-            {/* Left Side - Controls */}
-            <div className="space-y-6 lg:pr-4">
-              <motion.div
-                {...theme.animations.fadeInUp}
-                className="text-center mb-6"
-              >
-                <h2 className={theme.styles.text.heading.secondary}>Design Controls</h2>
-                <p className="opacity-90">Add and customize elements for your whiteboard</p>
-              </motion.div>
-
-              <div className="space-y-4">
-                {/* Image Upload & Generate Path Card */}
-                <motion.div
-                  {...theme.animations.staggerItem}
-                  className={getThemeClasses(theme.styles.card.base, theme.styles.card, darkMode)}
-                >
-                  <div className="relative">
-                    <div className="flex items-center gap-3 mb-6">
-                      <Upload className={getThemeClasses('', { light: 'text-blue-600', dark: 'text-blue-400' }, darkMode)} size={24} />
-                      <h3 className="text-lg font-semibold">Add Images</h3>
-                    </div>
-                    
-                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                      <div className="space-y-4 flex-1">
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleImageUpload}
-                          ref={fileInputRef}
-                          className="hidden"
-                        />
-                        <motion.button
-                          onClick={() => fileInputRef.current.click()}
-                          className={getThemeClasses(theme.styles.button.primary.base, theme.styles.button.primary, darkMode)}
-                          {...theme.animations.hover}
-                        >
-                          <Upload className="w-4 h-4 mr-2 inline" />
-                          Upload Image
-                        </motion.button>
-                        <p className="text-sm opacity-75">
-                          Or drag & drop images onto the canvas, or paste images from your clipboard (Ctrl+V)
-                        </p>
-                      </div>
-
-                      {/* Compute/Cancel button */}
-                      <div className="flex-shrink-0">
-                        {isCreatingAnimation ? (
-                          <motion.button
-                            onClick={cancelAnimation}
-                            className={getThemeClasses(
-                              'flex items-center gap-2 px-6 py-3 text-base font-medium rounded-lg border',
-                              {
-                                light: 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100',
-                                dark: 'bg-red-900 border-red-700 text-red-300 hover:bg-red-800'
-                              }, darkMode
-                            )}
-                            {...theme.animations.hover}
-                          >
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-current"></div>
-                            Cancel Animation
-                          </motion.button>
-                        ) : (
-                          <motion.button
-                            onClick={runVisualization}
-                            disabled={isVisualizing || elements.length === 0}
-                            className={getThemeClasses(
-                              theme.styles.button.primary.base + ' flex items-center gap-2 px-6 py-3 text-base font-medium',
-                              theme.styles.button.primary, darkMode
-                            )}
-                            {...theme.animations.hover}
-                          >
-                            {isVisualizing ? (
-                              <>
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                                Computing...
-                              </>
-                            ) : (
-                              <>
-                                <Play className="w-4 h-4" />
-                                Compute Simplified Image
-                              </>
-                            )}
-                          </motion.button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
-
-                {/* Text Controls Card */}
-                <motion.div
-                  {...theme.animations.staggerItem}
-                  className={getThemeClasses(theme.styles.card.base, theme.styles.card, darkMode)}
-                >
-                  <div className="flex items-center gap-3 mb-6">
-                    <Type className={getThemeClasses('', { light: 'text-blue-600', dark: 'text-blue-400' }, darkMode)} size={24} />
-                    <h3 className="text-lg font-semibold">Add Text</h3>
-                  </div>
-                  <div className="space-y-4">
-                    <input
-                      type="text"
-                      value={textInput}
-                      onChange={(e) => setTextInput(e.target.value)}
-                      placeholder="Enter your text..."
-                      className={getThemeClasses(
-                        'w-full px-4 py-3 border rounded-lg transition-colors',
-                        { light: 'bg-white border-gray-300 focus:border-blue-500', dark: 'bg-gray-800 border-gray-600 focus:border-blue-400' }, darkMode
-                      )}
-                    />
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <select
-                        value={fontFamily}
-                        onChange={(e) => setFontFamily(e.target.value)}
-                        className={getThemeClasses(
-                          'px-3 py-2 border rounded-lg',
-                          { light: 'bg-white border-gray-300', dark: 'bg-gray-800 border-gray-600' }, darkMode
-                        )}
-                      >
-                        <option value="Inter">Inter</option>
-                        <option value="Arial">Arial</option>
-                        <option value="Times New Roman">Times New Roman</option>
-                        <option value="Courier New">Courier New</option>
-                        <option value="Georgia">Georgia</option>
-                        <option value="Verdana">Verdana</option>
-                      </select>
-
-                      <input
-                        type="number"
-                        value={fontSize}
-                        onChange={(e) => setFontSize(parseInt(e.target.value))}
-                        min="36"
-                        max="72"
-                        className={getThemeClasses(
-                          'px-3 py-2 border rounded-lg',
-                          { light: 'bg-white border-gray-300', dark: 'bg-gray-800 border-gray-600' }, darkMode
-                        )}
-                      />
-                    </div>
-
-                    <div className="flex items-center gap-6">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={isBold}
-                          onChange={(e) => setIsBold(e.target.checked)}
-                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                        />
-                        <span className="text-sm font-medium">Bold</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={isItalic}
-                          onChange={(e) => setIsItalic(e.target.checked)}
-                          className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
-                        />
-                        <span className="text-sm font-medium">Italic</span>
-                      </label>
-                    </div>
-
-                    {/* Text Rendering Style */}
-                    <div className="space-y-2">
-                      <span className="text-sm font-medium">Text Rendering</span>
-                      <div className="flex gap-4">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="textRenderingStyle"
-                            value="filled"
-                            checked={textRenderingStyle === 'filled'}
-                            onChange={(e) => setTextRenderingStyle(e.target.value)}
-                            className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="text-sm font-medium">Filled</span>
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input
-                            type="radio"
-                            name="textRenderingStyle"
-                            value="outline"
-                            checked={textRenderingStyle === 'outline'}
-                            onChange={(e) => setTextRenderingStyle(e.target.value)}
-                            className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="text-sm font-medium">Outline</span>
-                        </label>
-                      </div>
-                    </div>
-
-                    <motion.button
-                      onClick={addTextElement}
-                      disabled={!textInput.trim()}
-                      className={getThemeClasses(theme.styles.button.primary.base, theme.styles.button.primary, darkMode)}
-                      {...theme.animations.hover}
-                    >
-                      <Type className="w-4 h-4 mr-2 inline" />
-                      Add Text Element
-                    </motion.button>
-                  </div>
-                </motion.div>
-
-                {/* Uniform Scaling Control */}
-                <motion.div
-                  {...theme.animations.staggerItem}
-                  className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="font-medium text-gray-900 dark:text-white">Uniform Scaling</h4>
-                      <p className="text-sm text-gray-600 dark:text-gray-400">Maintain aspect ratio when resizing</p>
-                    </div>
-                    <label className="flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={uniformScaling}
-                        onChange={(e) => setUniformScaling(e.target.checked)}
-                        className="w-5 h-5 text-blue-600 rounded focus:ring-blue-500"
-                      />
-                      <span className="ml-2 text-sm font-medium">Enabled</span>
-                    </label>
-                  </div>
-                </motion.div>
-
-                {/* Drawing Method Control */}
-                <motion.div
-                  {...theme.animations.staggerItem}
-                  className="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
-                >
-                  <div className="space-y-4">
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h4 className="font-medium text-gray-900 dark:text-white">Drawing Method</h4>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">Choose how images are converted to drawing paths</p>
-                      </div>
-                      <div className="flex flex-col space-y-3 ml-4">
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            name="drawingMethod"
-                            value="contour"
-                            checked={drawingMethod === 'contour'}
-                            onChange={(e) => setDrawingMethod(e.target.value)}
-                            className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="ml-2 text-sm font-medium">Contour</span>
-                          <span className="ml-2 text-xs text-gray-500">Traces edges and outlines</span>
-                        </label>
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            name="drawingMethod"
-                            value="hatch"
-                            checked={drawingMethod === 'hatch'}
-                            onChange={(e) => setDrawingMethod(e.target.value)}
-                            className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="ml-2 text-sm font-medium">Hatch</span>
-                          <span className="ml-2 text-xs text-gray-500">Cross-hatch patterns</span>
-                        </label>
-                        <label className="flex items-center">
-                          <input
-                            type="radio"
-                            name="drawingMethod"
-                            value="fill"
-                            checked={drawingMethod === 'fill'}
-                            onChange={(e) => setDrawingMethod(e.target.value)}
-                            className="w-4 h-4 text-blue-600 focus:ring-blue-500"
-                          />
-                          <span className="ml-2 text-sm font-medium">Fill</span>
-                          <span className="ml-2 text-xs text-gray-500">Fills dark areas (2mm sweep)</span>
-                        </label>
-                      </div>
-                    </div>
-                    {drawingMethod === 'hatch' && (
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-                            Hatch Spacing: {hatchSpacing}px
-                          </label>
-                          <input
-                            type="range"
-                            min="10"
-                            max="30"
-                            value={hatchSpacing}
-                            onChange={(e) => setHatchSpacing(parseInt(e.target.value))}
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700"
-                          />
-                          <div className="flex justify-between text-xs text-gray-500">
-                            <span>Dense</span>
-                            <span>Wide</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-
-
+              <div className="mx-auto mt-4 h-1 w-20 rounded-full bg-blue-600 dark:bg-blue-500" />
+              <p className="mx-auto mt-6 max-w-2xl text-lg opacity-90">
+                Lay out images and text on the board, preview the path the polargraph will take, then
+                send the job to the machine.
+              </p>
+              <div className="mt-6 flex flex-wrap items-center justify-center gap-2">
+                <Pill>{BOARD_WIDTH_MM} × {BOARD_HEIGHT_MM} mm board</Pill>
+                <Pill>{MARGIN_MM} mm safe margin</Pill>
+                <Pill>ESP32 over Wi-Fi</Pill>
               </div>
-            </div>
+            </motion.div>
+          </Container>
+        </Section>
 
-            {/* Right Side - Canvas */}
-            <div className="flex flex-col">
-              <motion.div
-                {...theme.animations.fadeInUp}
-                className="text-center mb-6"
-              >
-                <h2 className={theme.styles.text.heading.secondary}>Canvas</h2>
-                <p className="opacity-90">Drag and resize your elements on the whiteboard, or drag & drop images here</p>
-              </motion.div>
+        {/* Design ------------------------------------------------------- */}
+        <Section band="b" id="design">
+          <Container>
+            <SectionHeader
+              title="Design"
+              description="Drop in images, add text, then drag and resize everything until the layout looks right."
+            />
 
-              <div className="flex-1 flex items-center justify-center min-h-[200px]">
+            <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-8">
+              {/* Canvas */}
+              <Card className="order-1 p-4 sm:p-6 lg:sticky lg:top-24">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <h3 className="text-lg font-bold">Canvas</h3>
+                    <Pill tone="neutral">
+                      {elements.length} element{elements.length !== 1 ? 's' : ''}
+                    </Pill>
+                  </div>
+                  {elements.length > 0 && (
+                    <Button variant="ghost" size="sm" icon={Trash2} onClick={clearElements}>
+                      Clear all
+                    </Button>
+                  )}
+                </div>
+
                 <motion.div
-                  {...theme.animations.fadeInUp}
                   ref={canvasRef}
-                  className={getThemeClasses(
-                    'relative border-2 border-dashed rounded-xl overflow-hidden shadow-lg transition-colors duration-200',
-                    { 
-                      light: `bg-white ${isDragOver ? 'border-blue-400 bg-blue-50' : 'border-gray-300'}`, 
-                      dark: `bg-gray-800 ${isDragOver ? 'border-blue-400 bg-blue-900' : 'border-gray-600'}` 
-                    }, darkMode
+                  {...theme.animations.fadeIn}
+                  className={cn(
+                    'board-surface relative mx-auto w-full overflow-hidden rounded-lg border-2 transition-colors duration-200',
+                    isDragOver
+                      ? 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-500/10'
+                      : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800'
                   )}
                   style={{
-                    width: '100%',
                     maxWidth: `${CANVAS_WIDTH}px`,
                     aspectRatio: `${CANVAS_WIDTH}/${CANVAS_HEIGHT}`,
                     cursor: dragging ? 'grabbing' : resizing ? 'se-resize' : 'default',
-                    minHeight: '400px'
                   }}
                   onMouseMove={handleMouseMove}
                   onMouseUp={handleMouseUp}
@@ -1516,460 +1243,617 @@ const Whiteboard = ({ onOpenMotorControl }) => {
                     e.preventDefault();
                     setIsDragOver(false);
                     if (dragging || resizing) return;
-                    
+
                     const files = Array.from(e.dataTransfer.files);
-                    files.forEach(file => processImageFile(file));
+                    files.forEach((file) => processImageFile(file));
                   }}
                 >
-                {/* Safe Zone Indicator */}
-                <div
-                  className="absolute inset-0 pointer-events-none"
-                  style={{
-                    borderWidth: `${MARGIN_Y_PX}px ${MARGIN_X_PX}px`,
-                    borderColor: 'rgba(255, 0, 0, 0.1)',
-                    borderStyle: 'solid',
-                    zIndex: 0,
-                  }}
-                />
-                <AnimatePresence>
-                  {elements
-                    .sort((a, b) => {
-                      // Sort so text elements appear above image elements
-                      if (a.type === 'text' && b.type === 'image') return 1;
-                      if (a.type === 'image' && b.type === 'text') return -1;
-                      return 0;
-                    })
-                    .map((element) => (
-                    <motion.div
-                      key={element.id}
-                      initial={{ scale: 0, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      exit={{ scale: 0, opacity: 0 }}
-                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
-                      className="absolute group select-none"
-                      style={{
-                        left: `${(element.x / CANVAS_WIDTH) * 100}%`,
-                        top: `${(element.y / CANVAS_HEIGHT) * 100}%`,
-                        width: `${(element.width / CANVAS_WIDTH) * 100}%`,
-                        height: `${(element.height / CANVAS_HEIGHT) * 100}%`,
-                        touchAction: 'none',
-                      }}
-                      onMouseDown={(e) => handleMouseDown(e, element)}
-                      onTouchStart={(e) => handleTouchStart(e, element)}
-                    >
-                      <div className={getThemeClasses(
-                        'relative w-full h-full border rounded-lg overflow-hidden',
-                        { light: element.type === 'text' ? 'border-gray-300' : 'border-gray-200', dark: element.type === 'text' ? 'border-gray-600' : 'border-gray-600' }, darkMode
-                      )}>
-                        {element.type === 'image' ? (
-                          <img
-                            src={element.src}
-                            alt="Uploaded"
-                            className="w-full h-full object-fill"
-                            onDragStart={(e) => e.preventDefault()} // Prevent browser's default drag behavior
-                            draggable={false} // Explicitly disable dragging
-                          />
-                        ) : (
-                          <div
-                            className="w-full h-full flex items-center justify-center p-4 select-none relative bg-black bg-opacity-10 dark:bg-white dark:bg-opacity-10 rounded-lg"
-                            style={{
-                              fontSize: element.fontSize * canvasScale,
-                              fontFamily: element.fontFamily,
-                              fontWeight: element.isBold ? 'bold' : 'normal',
-                              fontStyle: element.isItalic ? 'italic' : 'normal',
-                              color: element.color,
-                            }}
-                            onDragStart={(e) => e.preventDefault()} // Prevent browser's default drag behavior
-                            draggable={false} // Explicitly disable dragging
-                          >
-                            {/* Centering indicator */}
-                            <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-2 h-2 bg-blue-500 rounded-full opacity-50 group-hover:opacity-100 transition-opacity duration-200"></div>
-                            {element.text}
-                          </div>
-                        )}
+                  {/* Reachable-area guide */}
+                  <div
+                    className="pointer-events-none absolute z-0 rounded-sm border border-dashed border-blue-600/30 dark:border-blue-400/30"
+                    style={{
+                      top: `${MARGIN_Y_PCT}%`,
+                      bottom: `${MARGIN_Y_PCT}%`,
+                      left: `${MARGIN_X_PCT}%`,
+                      right: `${MARGIN_X_PCT}%`,
+                    }}
+                  />
 
-                        {/* Delete button */}
-                        <motion.button
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          onClick={() => deleteElement(element.id)}
-                          className="delete-btn absolute -top-2 -right-2 w-8 h-8 bg-red-500 hover:bg-red-600 text-white rounded-full shadow-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-200"
-                          {...theme.animations.hover}
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </motion.button>
-
-                        {/* Resize handle */}
+                  <AnimatePresence>
+                    {sortedElements.map((element) => (
+                      <motion.div
+                        key={element.id}
+                        initial={{ scale: 0, opacity: 0 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        exit={{ scale: 0, opacity: 0 }}
+                        transition={{ type: 'spring', stiffness: 300, damping: 20 }}
+                        className="group absolute select-none"
+                        style={{
+                          left: `${(element.x / CANVAS_WIDTH) * 100}%`,
+                          top: `${(element.y / CANVAS_HEIGHT) * 100}%`,
+                          width: `${(element.width / CANVAS_WIDTH) * 100}%`,
+                          height: `${(element.height / CANVAS_HEIGHT) * 100}%`,
+                          touchAction: 'none',
+                        }}
+                        onMouseDown={(e) => handleMouseDown(e, element)}
+                        onTouchStart={(e) => handleTouchStart(e, element)}
+                      >
                         <div
-                          className="resize-handle absolute bottom-0 right-0 w-6 h-6 bg-blue-500 hover:bg-blue-600 rounded-tl-lg opacity-0 group-hover:opacity-100 transition-opacity duration-200 cursor-se-resize flex items-end justify-end"
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            handleResizeMouseDown(e, element);
-                          }}
-                          onTouchStart={(e) => {
-                            e.stopPropagation();
-                            handleResizeTouchStart(e, element);
-                          }}
-                          style={{ zIndex: 10, touchAction: 'none' }}
+                          className={cn(
+                            'relative h-full w-full overflow-hidden rounded-md border transition-colors',
+                            'border-gray-300 group-hover:border-blue-500 dark:border-gray-600 dark:group-hover:border-blue-400',
+                            (dragging === element.id || resizing === element.id) &&
+                              'border-blue-600 dark:border-blue-400'
+                          )}
                         >
-                          <div className="w-3 h-3 border-r-2 border-b-2 border-white mb-0.5 mr-0.5"></div>
+                          {element.type === 'image' ? (
+                            <img
+                              src={element.src}
+                              alt="Uploaded"
+                              className="h-full w-full object-fill"
+                              onDragStart={(e) => e.preventDefault()}
+                              draggable={false}
+                            />
+                          ) : (
+                            <div
+                              className="relative flex h-full w-full select-none items-center justify-center rounded-md bg-gray-900/5 p-2 dark:bg-white/10"
+                              style={{
+                                fontSize: element.fontSize * canvasScale,
+                                fontFamily: element.fontFamily,
+                                fontWeight: element.isBold ? 'bold' : 'normal',
+                                fontStyle: element.isItalic ? 'italic' : 'normal',
+                                color: element.color,
+                              }}
+                              onDragStart={(e) => e.preventDefault()}
+                              draggable={false}
+                            >
+                              {/* Centering indicator */}
+                              <div className="el-chrome absolute left-1/2 top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-blue-500" />
+                              {element.text}
+                            </div>
+                          )}
+
+                          {/* Delete */}
+                          <button
+                            type="button"
+                            onClick={() => deleteElement(element.id)}
+                            aria-label="Delete element"
+                            className="delete-btn el-chrome el-delete absolute -right-2 -top-2 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-red-500 text-white shadow-lg transition-colors hover:bg-red-600"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+
+                          {/* Resize */}
+                          <div
+                            className="resize-handle el-chrome el-handle absolute bottom-0 right-0 z-10 flex h-6 w-6 cursor-se-resize items-end justify-end rounded-tl-md bg-blue-600 transition-colors hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+                            onMouseDown={(e) => {
+                              e.stopPropagation();
+                              handleResizeMouseDown(e, element);
+                            }}
+                            onTouchStart={(e) => {
+                              e.stopPropagation();
+                              handleResizeTouchStart(e, element);
+                            }}
+                            style={{ touchAction: 'none' }}
+                          >
+                            <div className="mb-1 mr-1 h-2 w-2 border-b-2 border-r-2 border-white" />
+                          </div>
                         </div>
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
+
+                  {elements.length === 0 && (
+                    <motion.div
+                      {...theme.animations.fadeIn}
+                      className="pointer-events-none absolute inset-0 flex items-center justify-center p-6"
+                    >
+                      <div className="text-center opacity-60">
+                        <ImageIcon className="mx-auto mb-3 h-10 w-10" strokeWidth={1.5} />
+                        <p className="text-sm font-medium sm:text-base">
+                          Drop an image here, paste from the clipboard, or add text
+                        </p>
                       </div>
                     </motion.div>
-                  ))}
-                </AnimatePresence>
+                  )}
+                </motion.div>
 
-                {elements.length === 0 && (
-                  <motion.div
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="absolute inset-0 flex items-center justify-center text-gray-400 dark:text-gray-500"
+                <p className="mt-3 text-xs opacity-60">
+                  The dashed guide marks the {MARGIN_MM} mm margin the pen can reach. Elements stay inside it.
+                </p>
+
+                <div className="mt-4 flex flex-col gap-3 border-t border-gray-200 pt-4 dark:border-gray-800 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm opacity-70">
+                    {hasResults ? 'Recompute after changing the layout.' : 'Generate a preview when the layout is ready.'}
+                  </p>
+                  {isCreatingAnimation ? (
+                    <Button variant="danger" size="md" onClick={cancelAnimation} className="w-full sm:w-auto">
+                      <Spinner />
+                      Cancel render
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="primary"
+                      size="md"
+                      icon={isVisualizing ? undefined : Sparkles}
+                      onClick={runVisualization}
+                      disabled={isVisualizing || elements.length === 0}
+                      className="w-full sm:w-auto"
+                    >
+                      {isVisualizing ? (
+                        <>
+                          <Spinner />
+                          Computing…
+                        </>
+                      ) : (
+                        'Generate preview'
+                      )}
+                    </Button>
+                  )}
+                </div>
+              </Card>
+
+              {/* Control rail */}
+              <div className="order-2 space-y-6">
+                {/* Images */}
+                <Card className="space-y-4 p-6">
+                  <CardHeader
+                    icon={Upload}
+                    title="Images"
+                    description="Upload, drag onto the canvas, or paste with Ctrl+V."
+                  />
+                  <input
+                    type="file"
+                    accept="image/*"
+                    onChange={handleImageUpload}
+                    ref={fileInputRef}
+                    className="hidden"
+                  />
+                  <Button
+                    variant="primary"
+                    size="md"
+                    icon={Upload}
+                    onClick={() => fileInputRef.current?.click()}
+                    className="w-full"
                   >
-                    <div className="text-center">
-                      <Palette className="w-16 h-16 mx-auto mb-4 opacity-50" />
-                      <p className="text-lg">Start by adding images and text to your whiteboard</p>
+                    Upload image
+                  </Button>
+                </Card>
+
+                {/* Text */}
+                <Card className="space-y-5 p-6">
+                  <CardHeader icon={Type} title="Text" description="Add a line of text to the board." />
+
+                  <Field label="Content" htmlFor="text-content">
+                    <TextInput
+                      id="text-content"
+                      value={textInput}
+                      onChange={(e) => setTextInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') addTextElement();
+                      }}
+                      placeholder="Enter your text…"
+                    />
+                  </Field>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <Field label="Font" htmlFor="text-font">
+                      <Select
+                        id="text-font"
+                        value={fontFamily}
+                        onChange={(e) => setFontFamily(e.target.value)}
+                      >
+                        {FONT_OPTIONS.map((font) => (
+                          <option key={font} value={font}>
+                            {font}
+                          </option>
+                        ))}
+                      </Select>
+                    </Field>
+
+                    <Field label="Size" htmlFor="text-size" hint="36–72 px">
+                      <TextInput
+                        id="text-size"
+                        type="number"
+                        value={fontSize}
+                        onChange={(e) => setFontSize(parseInt(e.target.value, 10))}
+                        min="36"
+                        max="72"
+                      />
+                    </Field>
+                  </div>
+
+                  <div className="flex flex-wrap items-end gap-6">
+                    <div className="space-y-2">
+                      <Label>Weight</Label>
+                      <div className="flex gap-2">
+                        <ToggleButton
+                          pressed={isBold}
+                          onClick={() => setIsBold(!isBold)}
+                          aria-label="Bold"
+                          className="font-bold"
+                        >
+                          B
+                        </ToggleButton>
+                        <ToggleButton
+                          pressed={isItalic}
+                          onClick={() => setIsItalic(!isItalic)}
+                          aria-label="Italic"
+                          className="font-serif italic"
+                        >
+                          I
+                        </ToggleButton>
+                      </div>
                     </div>
-                  </motion.div>
-                )}
+
+                    <div className="space-y-2">
+                      <Label>Rendering</Label>
+                      <SegmentedControl
+                        ariaLabel="Text rendering style"
+                        value={textRenderingStyle}
+                        onChange={setTextRenderingStyle}
+                        options={TEXT_STYLES}
+                      />
+                    </div>
+                  </div>
+
+                  <Button
+                    variant="primary"
+                    size="md"
+                    icon={Type}
+                    onClick={addTextElement}
+                    disabled={!textInput.trim()}
+                    className="w-full"
+                  >
+                    Add text element
+                  </Button>
+                </Card>
+
+                {/* Path settings */}
+                <Card className="space-y-5 p-6">
+                  <CardHeader
+                    icon={SlidersHorizontal}
+                    title="Path settings"
+                    description="How images become pen strokes."
+                  />
+
+                  <Field label="Drawing method">
+                    <SegmentedControl
+                      ariaLabel="Drawing method"
+                      value={drawingMethod}
+                      onChange={setDrawingMethod}
+                      options={DRAWING_METHODS}
+                      className="grid grid-cols-3 gap-2"
+                    />
+                  </Field>
+
+                  <AnimatePresence initial={false}>
+                    {drawingMethod === 'hatch' && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.25 }}
+                        className="overflow-hidden"
+                      >
+                        <Field label={`Hatch spacing — ${hatchSpacing} px`} htmlFor="hatch-spacing">
+                          <RangeInput
+                            id="hatch-spacing"
+                            min="10"
+                            max="30"
+                            value={hatchSpacing}
+                            onChange={(e) => setHatchSpacing(parseInt(e.target.value, 10))}
+                          />
+                          <div className="flex justify-between text-xs opacity-60">
+                            <span>Dense</span>
+                            <span>Wide</span>
+                          </div>
+                        </Field>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <div className="border-t border-gray-200 pt-5 dark:border-gray-800">
+                    <Switch
+                      checked={uniformScaling}
+                      onChange={setUniformScaling}
+                      label="Uniform scaling"
+                      description="Keep the aspect ratio while resizing."
+                    />
+                  </div>
+                </Card>
+              </div>
+            </div>
+          </Container>
+        </Section>
+
+        {/* Preview ------------------------------------------------------ */}
+        <Section band="a" id="preview">
+          <Container>
+            <SectionHeader
+              title="Preview"
+              description="What the polargraph will draw, rendered from the simplified path."
+            />
+
+            {!hasResults ? (
+              <motion.div {...theme.animations.fadeInUp}>
+                <EmptyState
+                  icon={Sparkles}
+                  title="No preview yet"
+                  description="Add elements to the canvas and select Generate preview to render the drawing path and its animation."
+                />
               </motion.div>
+            ) : (
+              <div className="space-y-8">
+                <Card className="p-6">
+                  <StatGrid items={resultStats} />
+                </Card>
+
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+                  {visualizationResult?.previewImage && (
+                    <Card className="overflow-hidden">
+                      <div className="flex aspect-[4/3] items-center justify-center bg-gray-50 p-3 dark:bg-gray-800">
+                        <img
+                          src={visualizationResult.previewImage}
+                          alt="Combined layout"
+                          className="max-h-full max-w-full object-contain"
+                        />
+                      </div>
+                      <div className="p-5">
+                        <h3 className="font-bold">Combined layout</h3>
+                        <p className="mt-1 text-sm opacity-80">Your elements with the path overlaid.</p>
+                      </div>
+                    </Card>
+                  )}
+
+                  {visualizationResult?.pathImage && (
+                    <Card className="overflow-hidden">
+                      <div className="flex aspect-[4/3] items-center justify-center bg-gray-50 p-3 dark:bg-gray-800">
+                        <img
+                          src={visualizationResult.pathImage}
+                          alt="Drawing path"
+                          className="max-h-full max-w-full object-contain"
+                        />
+                      </div>
+                      <div className="p-5">
+                        <h3 className="font-bold">Drawing path</h3>
+                        <p className="mt-1 text-sm opacity-80">Pen strokes only, in drawing order.</p>
+                      </div>
+                    </Card>
+                  )}
+
+                  {(isCreatingAnimation || animationResult?.animationGif) && (
+                    <Card className="overflow-hidden">
+                      <div className="flex aspect-[4/3] items-center justify-center bg-gray-50 p-3 dark:bg-gray-800">
+                        {isCreatingAnimation ? (
+                          <div className="flex flex-col items-center gap-4 text-center">
+                            <Loader2 className="h-10 w-10 animate-spin text-blue-600 dark:text-blue-400" />
+                            <p className="text-sm opacity-80">Rendering animation…</p>
+                            <Button variant="danger" size="sm" onClick={cancelAnimation}>
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <img
+                            src={animationResult.animationGif}
+                            alt="Drawing animation"
+                            className="max-h-full max-w-full object-contain"
+                          />
+                        )}
+                      </div>
+                      <div className="p-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h3 className="font-bold">Animation</h3>
+                            <p className="mt-1 text-sm opacity-80">
+                              {animationResult?.duration
+                                ? `Sequence, ${animationResult.duration}.`
+                                : 'The stroke sequence, played back.'}
+                            </p>
+                          </div>
+                          {animationResult?.animationGif && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              icon={Download}
+                              onClick={() => {
+                                const link = document.createElement('a');
+                                link.href = animationResult.animationGif;
+                                link.download = 'drawing_animation.gif';
+                                link.click();
+                              }}
+                            >
+                              GIF
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+                    </Card>
+                  )}
+                </div>
+              </div>
+            )}
+          </Container>
+        </Section>
+
+        {/* Controller --------------------------------------------------- */}
+        <Section band="b" id="controller">
+          <Container>
+            <SectionHeader
+              title="Controller"
+              description="Queue the drawing on the ESP32 and follow its progress without blocking this page."
+            />
+
+            <Card className="space-y-6 p-6 md:p-8">
+              <CardHeader
+                icon={Cpu}
+                title="Send to plotter"
+                description="The job runs on the controller; you can leave this page once it starts."
+                actions={
+                  <Pill tone={statusTone(pathJobStatus?.status)}>
+                    {pathJobStatus?.status || 'idle'}
+                    {pathJobStatus?.paused ? ' · paused' : ''}
+                  </Pill>
+                }
+              />
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label="Controller URL" htmlFor="controller-url">
+                  <TextInput
+                    id="controller-url"
+                    value={controllerUrl}
+                    onChange={(event) => setControllerUrl(event.target.value)}
+                    placeholder="http://192.168.x.x"
+                    inputMode="url"
+                    autoComplete="off"
+                    spellCheck="false"
+                  />
+                </Field>
+
+                <Field label="Speed" htmlFor="controller-speed">
+                  <Select
+                    id="controller-speed"
+                    value={controllerSpeed}
+                    onChange={(event) => setControllerSpeed(parseInt(event.target.value, 10))}
+                  >
+                    {SPEED_OPTIONS.map((option) => (
+                      <option key={option.label} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
               </div>
 
-              {/* Stats */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.8 }}
-                className="mt-4 text-center text-gray-600 dark:text-gray-400"
-              >
-                <p>{elements.length} element{elements.length !== 1 ? 's' : ''} on your whiteboard</p>
-              </motion.div>
-            </div>
-          </div>
-        </div>
-      </section>
+              <div className="flex flex-wrap gap-3">
+                <Button
+                  variant="primary"
+                  size="md"
+                  icon={isSendingPath ? undefined : Play}
+                  onClick={sendPathToController}
+                  disabled={isSendingPath || elements.length === 0 || jobIsActive}
+                >
+                  {isSendingPath ? (
+                    <>
+                      <Spinner />
+                      Sending…
+                    </>
+                  ) : (
+                    'Send path'
+                  )}
+                </Button>
 
-      {/* Visualization Section */}
-      <section className={getThemeClasses(theme.styles.section.base, theme.styles.section, darkMode)}>
-        <div className={theme.styles.container}>
-          <motion.div
-            {...theme.animations.fadeInUp}
-            className="text-center mb-12"
-          >
-            <h2 className={theme.styles.text.heading.secondary}>Visualization</h2>
-            <p className="opacity-90">See how your whiteboard design will look when drawn by the polargraph</p>
-          </motion.div>
-
-          <div className="flex flex-col items-center space-y-8">
-            {/* Results will appear here */}
-            {!(visualizationResult || animationResult) && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className={getThemeClasses(
-                  'w-full p-12 rounded-lg border-2 border-dashed text-center',
-                  {
-                    light: 'bg-gray-50 border-gray-300 text-gray-500',
-                    dark: 'bg-gray-800 border-gray-600 text-gray-400'
-                  }, darkMode
+                {(pathJobStatus?.status === 'pending' || pathJobStatus?.status === 'running') && (
+                  <>
+                    {pathJobStatus?.paused ? (
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        icon={Play}
+                        onClick={resumePathTransmission}
+                        disabled={isSendingPath}
+                      >
+                        Resume
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="secondary"
+                        size="md"
+                        icon={Pause}
+                        onClick={pausePathTransmission}
+                        disabled={isSendingPath}
+                      >
+                        Pause
+                      </Button>
+                    )}
+                    <Button variant="danger" size="md" icon={Square} onClick={cancelPathTransmission}>
+                      Stop
+                    </Button>
+                  </>
                 )}
-              >
-                <div className="space-y-4">
-                  <div className="w-16 h-16 mx-auto opacity-50">
-                    <svg className="w-full h-full" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
-                    </svg>
+              </div>
+
+              {elements.length === 0 && (
+                <p className="text-sm opacity-70">Add elements to the canvas before sending a job.</p>
+              )}
+
+              {pathSendError && (
+                <p className="text-sm text-red-600 dark:text-red-400">{pathSendError}</p>
+              )}
+
+              {/* Live status */}
+              <div className={cn('relative p-5', theme.surface.well)}>
+                {pathStatusOverlayMessage && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg bg-gray-100/70 dark:bg-gray-900/60">
+                    <Loader2 className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" />
+                    <span className="mt-2 px-4 text-center text-xs font-medium">
+                      {pathStatusOverlayMessage}
+                    </span>
                   </div>
-                  <div>
-                    <h3 className="text-lg font-medium mb-2">Visualization Results</h3>
-                    <p className="text-sm opacity-75">Click "Compute Simplified Image" above to generate your drawing path and animation</p>
-                  </div>
-                </div>
-              </motion.div>
-            )}
+                )}
 
-            {(visualizationResult || animationResult) && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className={getThemeClasses(theme.styles.card.base + ' p-8', theme.styles.card, darkMode)}
-              >
-                <h3 className="text-lg font-semibold mb-4">Visualization Results</h3>
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                  {/* Combined Layout */}
-                  {visualizationResult?.previewImage && (
-                    <div className="text-center">
-                      <h4 className="text-sm font-medium mb-2">Combined Layout</h4>
-                      <img
-                        src={visualizationResult.previewImage}
-                        alt="Combined Layout"
-                        className="max-w-full h-auto rounded-lg border mx-auto"
-                        style={{ maxHeight: '350px', objectFit: 'contain' }}
-                      />
-                      <p className="text-xs opacity-75 mt-2">Images + drawing path</p>
-                    </div>
+                <div
+                  className={cn(
+                    'space-y-4',
+                    pathStatusOverlayMessage && 'pointer-events-none opacity-50 transition-opacity duration-200'
                   )}
-
-                  {/* Drawing Path */}
-                  {visualizationResult?.pathImage && (
-                    <div className="text-center">
-                      <h4 className="text-sm font-medium mb-2">Drawing Path</h4>
-                      <img
-                        src={visualizationResult.pathImage}
-                        alt="Drawing Path"
-                        className="max-w-full h-auto rounded-lg border mx-auto"
-                        style={{ maxHeight: '350px', objectFit: 'contain' }}
-                      />
-                      <p className="text-xs opacity-75 mt-2">Path preview</p>
-                    </div>
-                  )}
-
-                  {/* Animation */}
-                  {isCreatingAnimation ? (
-                    <div className="text-center">
-                      <h4 className="text-sm font-medium mb-2">Drawing Animation</h4>
-                      <div className="flex flex-col items-center justify-center space-y-4 p-8 rounded-lg border mx-auto" style={{ height: '350px', width: '100%', maxWidth: '350px' }}>
-                        <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-500"></div>
-                        <div>
-                          <p className="text-sm opacity-75 mb-2">Generating animation...</p>
-                          <motion.button
-                            onClick={cancelAnimation}
-                            className={getThemeClasses('px-3 py-1 text-sm rounded border', {
-                              light: 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100',
-                              dark: 'bg-red-900 border-red-700 text-red-300 hover:bg-red-800'
-                            }, darkMode)}
-                            {...theme.animations.hover}
-                          >
-                            Cancel
-                          </motion.button>
-                        </div>
-                      </div>
-                      <p className="text-xs opacity-75 mt-2">Animated sequence</p>
-                    </div>
-                  ) : animationResult?.animationGif ? (
-                    <div className="text-center">
-                      <h4 className="text-sm font-medium mb-2">Drawing Animation</h4>
-                      <img
-                        src={animationResult.animationGif}
-                        alt="Drawing Animation"
-                        className="max-w-full h-auto rounded-lg border mx-auto"
-                        style={{ maxHeight: '350px', objectFit: 'contain' }}
-                      />
-                      <p className="text-xs opacity-75 mt-2">Animated sequence</p>
-                      <motion.button
-                        onClick={() => {
-                          const link = document.createElement('a');
-                          link.href = animationResult.animationGif;
-                          link.download = 'drawing_animation.gif';
-                          link.click();
-                        }}
-                        className={getThemeClasses(theme.styles.button.primary.base + ' mt-2', theme.styles.button.primary, darkMode)}
-                        {...theme.animations.hover}
-                      >
-                        <Download className="w-4 h-4 mr-2 inline" />
-                        Download GIF
-                      </motion.button>
-                    </div>
-                  ) : null}
-                </div>
-
-                {/* Stats */}
-                <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                  <div className="text-sm opacity-75 text-center">
-                    <p>Board Size: {visualizationResult?.boardWidth || 'N/A'} × {visualizationResult?.boardHeight || 'N/A'}</p>
-                    <p>Images: {visualizationResult?.imageCount || 'N/A'} | Path Points: {visualizationResult?.pathLength || 'N/A'}</p>
-                    {animationResult && (
-                      <p>Animation: {animationResult.frameCount || 'N/A'} frames | Duration: {animationResult.duration || 'N/A'}</p>
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-sm font-medium">Transmission</span>
+                    {pathJobStatus?.jobId && (
+                      <span className="font-mono text-xs opacity-60">{pathJobStatus.jobId}</span>
                     )}
                   </div>
-                </div>
 
-                <div className="mt-6 pt-6 border-t border-gray-200 dark:border-gray-700 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h4 className="text-base font-semibold">Send to Microcontroller</h4>
-                      <p className="text-sm opacity-75">Queue the drawing on the ESP32 without blocking this page.</p>
+                  {pathJobStatus?.totalPoints ? (
+                    <div className="space-y-2">
+                      <ProgressBar value={jobProgressPercent} />
+                      <div className="flex flex-wrap justify-between gap-2 text-xs opacity-70">
+                        <span>
+                          {(pathJobStatus?.sentPoints || 0).toLocaleString()} / {(pathJobStatus?.totalPoints || 0).toLocaleString()} points
+                        </span>
+                        <span>
+                          {pathJobStatus?.sentBatches || 0} / {pathJobStatus?.totalBatches || 0} batches
+                        </span>
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <input
-                      type="text"
-                      value={controllerUrl}
-                      onChange={(event) => setControllerUrl(event.target.value)}
-                      placeholder="http://192.168.x.x"
-                      className={getThemeClasses(
-                        'w-full px-3 py-2 border rounded-lg',
-                        { light: 'bg-white border-gray-300 focus:border-blue-500', dark: 'bg-gray-800 border-gray-600 focus:border-blue-400' },
-                        darkMode
-                      )}
-                    />
-                    <select
-                      value={controllerSpeed}
-                      onChange={(event) => setControllerSpeed(parseInt(event.target.value, 10))}
-                      className={getThemeClasses(
-                        'w-full px-3 py-2 border rounded-lg',
-                        { light: 'bg-white border-gray-300 focus:border-blue-500', dark: 'bg-gray-800 border-gray-600 focus:border-blue-400' },
-                        darkMode
-                      )}
-                    >
-                      {SPEED_OPTIONS.map((option) => (
-                        <option key={option.label} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <div className="flex flex-wrap items-center gap-3">
-                      <motion.button
-                        onClick={sendPathToController}
-                        disabled={
-                          isSendingPath ||
-                          elements.length === 0 ||
-                          ACTIVE_JOB_STATUSES.has(pathJobStatus?.status)
-                        }
-                        className={getThemeClasses(
-                          theme.styles.button.primary.base + ' flex items-center gap-2 px-4 py-2 text-sm font-medium',
-                          theme.styles.button.primary,
-                          darkMode
-                        )}
-                        {...theme.animations.hover}
-                      >
-                        {isSendingPath ? (
-                          <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                            Sending...
-                          </>
-                        ) : (
-                          <>
-                            <Play className="w-4 h-4" />
-                            Send Path
-                          </>
-                        )}
-                      </motion.button>
-                      {(pathJobStatus?.status === 'pending' || pathJobStatus?.status === 'running') && (
-                        pathJobStatus?.paused ? (
-                          <motion.button
-                            onClick={resumePathTransmission}
-                            disabled={isSendingPath}
-                            className={getThemeClasses(
-                              'px-4 py-2 text-sm font-medium rounded-lg border flex items-center gap-2',
-                              { light: 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100', dark: 'bg-green-900 border-green-700 text-green-300 hover:bg-green-800' },
-                              darkMode
-                            )}
-                            {...theme.animations.hover}
-                          >
-                            <Play className="w-4 h-4" />
-                            Resume
-                          </motion.button>
-                        ) : (
-                          <motion.button
-                            onClick={pausePathTransmission}
-                            disabled={isSendingPath}
-                            className={getThemeClasses(
-                              'px-4 py-2 text-sm font-medium rounded-lg border flex items-center gap-2',
-                              { light: 'bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100', dark: 'bg-yellow-900 border-yellow-700 text-yellow-200 hover:bg-yellow-800' },
-                              darkMode
-                            )}
-                            {...theme.animations.hover}
-                          >
-                            <Pause className="w-4 h-4" />
-                            Pause
-                          </motion.button>
-                        )
-                      )}
-                      {(pathJobStatus?.status === 'pending' || pathJobStatus?.status === 'running') && (
-                        <motion.button
-                          onClick={cancelPathTransmission}
-                          className={getThemeClasses(
-                            'px-4 py-2 text-sm font-medium rounded-lg border',
-                            { light: 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100', dark: 'bg-red-900 border-red-700 text-red-300 hover:bg-red-800' },
-                            darkMode
-                          )}
-                          {...theme.animations.hover}
-                        >
-                          Cancel
-                        </motion.button>
-                      )}
-                    </div>
-                  </div>
-
-                  {pathSendError && (
-                    <p className="text-sm text-red-500">{pathSendError}</p>
+                  ) : (
+                    <p className="text-xs opacity-70">
+                      {pathJobStatus
+                        ? 'Awaiting transmission data…'
+                        : 'No active controller job yet. Send a path to see live progress.'}
+                    </p>
                   )}
 
-                  <div
-                    className={getThemeClasses(
-                      'relative p-4 rounded-lg border text-sm',
-                      { light: 'bg-gray-50 border-gray-200', dark: 'bg-gray-800 border-gray-700' },
-                      darkMode
-                    )}
-                  >
-                    {pathStatusOverlayMessage && (
-                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg bg-gray-900/20 dark:bg-black/30 text-gray-900 dark:text-gray-100">
-                        <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
-                        <span className="mt-2 text-xs font-medium text-center px-4">{pathStatusOverlayMessage}</span>
-                      </div>
-                    )}
+                  {pathJobStatus?.error && (
+                    <p className="text-xs text-red-600 dark:text-red-400">Error: {pathJobStatus.error}</p>
+                  )}
+                  {pathJobStatus?.controllerStatus?.error && (
+                    <p className="text-xs text-red-600 dark:text-red-400">
+                      Status poller error: {pathJobStatus.controllerStatus.error}
+                    </p>
+                  )}
+                  {pathJobStatus?.controllerStatus?.stale && (
+                    <p className="text-xs opacity-70">Controller status is stale; awaiting refresh…</p>
+                  )}
+                  {pathJobStatus?.paused && (
+                    <p className="text-xs opacity-70">
+                      Transmission is paused. Resume to continue sending the remaining batches.
+                    </p>
+                  )}
+                  {pathJobStatus?.status === 'idle' && pathJobStatus?.lastState && (
+                    <p className="text-xs opacity-70">Last job: {pathJobStatus.lastState}</p>
+                  )}
 
-                    <div className={pathStatusOverlayMessage ? 'pointer-events-none opacity-60 transition-opacity duration-200' : ''}>
-                      <div className="flex flex-col gap-2">
-                        <div className="flex justify-between">
-                          <span className="font-medium">Status: {pathJobStatus?.status || 'idle'}{pathJobStatus?.paused ? ' (paused)' : ''}</span>
-                          {pathJobStatus?.jobId && (
-                            <span className="opacity-60">Job ID: {pathJobStatus.jobId}</span>
-                          )}
-                        </div>
-
-                        {pathJobStatus?.totalPoints ? (
-                          <>
-                            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                              <div
-                                className="bg-blue-500 h-2 rounded-full"
-                                style={{ width: `${jobProgressPercent}%` }}
-                              />
-                            </div>
-                            <div className="flex justify-between text-xs opacity-75">
-                              <span>{pathJobStatus?.sentPoints || 0} / {pathJobStatus?.totalPoints || 0} points</span>
-                              <span>{pathJobStatus?.sentBatches || 0} / {pathJobStatus?.totalBatches || 0} batches</span>
-                            </div>
-                          </>
-                        ) : (
-                          <p className="text-xs opacity-75">Awaiting transmission data…</p>
-                        )}
-
-                        {pathJobStatus?.error && (
-                          <p className="text-xs text-red-500">Error: {pathJobStatus.error}</p>
-                        )}
-                        {pathJobStatus?.controllerStatus?.error && (
-                          <p className="text-xs text-red-500">Status poller error: {pathJobStatus.controllerStatus.error}</p>
-                        )}
-                        {pathJobStatus?.controllerStatus?.stale && (
-                          <p className="text-xs text-yellow-500 dark:text-yellow-300">Controller status is stale; awaiting refresh…</p>
-                        )}
-                        {pathJobStatus?.status === 'idle' && pathJobStatus?.lastState && (
-                          <p className="text-xs opacity-75">Last job: {pathJobStatus.lastState}</p>
-                        )}
-                        {pathJobStatus?.paused && (
-                          <p className="text-xs text-yellow-500 dark:text-yellow-300">Transmission is paused. Resume to continue sending remaining batches.</p>
-                        )}
-
-                        <p className="text-xs opacity-60">
-                          {pathLastUpdatedLabel ? `Last update: ${pathLastUpdatedLabel}` : 'No updates received yet.'}
-                        </p>
-                        {!pathJobStatus && (
-                          <p className="text-xs opacity-75">No active controller job yet. Send a path to see live progress.</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+                  <p className="text-xs opacity-60">
+                    {pathLastUpdatedLabel ? `Last update ${pathLastUpdatedLabel}` : 'No updates received yet.'}
+                  </p>
                 </div>
-
-              </motion.div>
-            )}
-          </div>
-        </div>
-      </section>
-
-
+              </div>
+            </Card>
+          </Container>
+        </Section>
+      </main>
 
       <Footer />
       <ScrollToTopButton />

@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Loader2, Pause, Play, RefreshCcw, Square, Sun, Moon } from 'lucide-react';
+import { ArrowLeft, Cpu, Loader2, Pause, Play, RefreshCcw, Square, Sun, Moon } from 'lucide-react';
 import { useTheme } from './ThemeProvider';
-import { getThemeClasses, theme } from '../theme';
+import { cn, theme } from '../theme';
 import { buildApiUrl, fetchPathStatus } from '../utils/api';
+import { Button, Card, CardHeader, Container, Pill, ProgressBar } from './ui';
 
 const ACTION_ENDPOINTS = {
   pause: '/api/send-path/pause',
@@ -54,6 +55,12 @@ const mergeStatus = (update, previous) => {
   return merged;
 };
 
+const statusTone = (status) => {
+  if (status === 'failed') return 'danger';
+  if (status && ACTIVE_JOB_STATUSES.has(status)) return 'accent';
+  return 'neutral';
+};
+
 const MotorControlPage = ({ onBack }) => {
   const { darkMode, toggleTheme } = useTheme();
   const [status, setStatus] = useState(null);
@@ -97,7 +104,7 @@ const MotorControlPage = ({ onBack }) => {
           setStatusIssues('polling-error');
           return;
         }
-  applyStatusUpdate(data);
+        applyStatusUpdate(data);
         setError(null);
         consecutiveFailureRef.current = 0;
       } catch (err) {
@@ -226,217 +233,179 @@ const MotorControlPage = ({ onBack }) => {
     if (Number.isNaN(date.getTime())) {
       return null;
     }
-    return date.toLocaleString();
+    return date.toLocaleTimeString();
   }, [lastUpdateAt]);
 
   const controllerStatus = status?.controllerStatus;
   const controllerError = controllerStatus?.error;
   const controllerStale = controllerStatus?.stale;
 
+  const timeline = [
+    startedLabel && { label: 'Started', value: startedLabel },
+    finishedLabel && { label: 'Finished', value: finishedLabel },
+    lastUpdatedLabel && { label: 'Last update', value: lastUpdatedLabel },
+  ].filter(Boolean);
+
   return (
-    <div className={getThemeClasses('min-h-screen', { light: 'bg-gray-100 text-gray-900', dark: 'bg-gray-950 text-white' }, darkMode)}>
-      <header className={getThemeClasses('border-b', { light: 'bg-white border-gray-200', dark: 'bg-gray-900 border-gray-800' }, darkMode)}>
-        <div className="max-w-5xl mx-auto px-6 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div className="flex items-center gap-3">
+    <div className="min-h-screen bg-gray-50 text-gray-900 transition-colors duration-300 dark:bg-gray-900 dark:text-white">
+      <motion.header
+        initial={{ y: -64 }}
+        animate={{ y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="fixed inset-x-0 top-0 z-50 border-b border-gray-200 bg-white/80 backdrop-blur-lg dark:border-gray-800 dark:bg-gray-900/80"
+      >
+        <Container className="flex h-16 items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
             {backHandler && (
-              <motion.button
-                onClick={backHandler}
-                className={getThemeClasses(
-                  'flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors',
-                  { light: 'bg-white border-gray-200 text-gray-700 hover:bg-gray-100', dark: 'bg-gray-800 border-gray-700 text-gray-200 hover:bg-gray-700' },
-                  darkMode
-                )}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span className="hidden sm:inline">Back to Designer</span>
-              </motion.button>
+              <Button variant="secondary" size="sm" icon={ArrowLeft} onClick={backHandler}>
+                <span className="hidden sm:inline">Designer</span>
+              </Button>
             )}
-            <div>
-              <h1 className="text-xl font-semibold">Motor Control</h1>
-              <p className="text-sm opacity-70">Monitor active jobs and manage the microcontroller.</p>
-            </div>
+            <span className="truncate text-xl font-bold text-blue-600 dark:text-blue-400">Motor Control</span>
           </div>
-          <div className="flex items-center gap-3">
-            <motion.button
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={RefreshCcw}
               onClick={handleRefresh}
               disabled={isLoading}
-              className={getThemeClasses(
-                'flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border transition-colors disabled:opacity-70 disabled:cursor-not-allowed',
-                { light: 'bg-blue-50 border-blue-200 text-blue-700 hover:bg-blue-100', dark: 'bg-blue-900 border-blue-700 text-blue-200 hover:bg-blue-800' },
-                darkMode
-              )}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
             >
-              <RefreshCcw className="w-4 h-4" />
-              <span>Refresh</span>
-            </motion.button>
-            <motion.button
+              <span className="hidden sm:inline">Refresh</span>
+            </Button>
+            <Button
+              variant="icon"
+              size="icon"
               onClick={toggleTheme}
-              className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
+              aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
             >
-              {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            </motion.button>
+              {darkMode ? <Sun size={20} /> : <Moon size={20} />}
+            </Button>
           </div>
-        </div>
-      </header>
+        </Container>
+      </motion.header>
 
-      <main className="py-10">
-        <div className="max-w-5xl mx-auto px-6">
-          <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={getThemeClasses(
-              `${theme.styles.card.base} space-y-6`,
-              { light: theme.styles.card.light, dark: theme.styles.card.dark },
-              darkMode
-            )}
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-semibold">Controller Job Status</h2>
-                <p className="text-sm opacity-70">Live progress and batch information for the most recent job.</p>
-              </div>
-              {isLoading && <Loader2 className="w-5 h-5 animate-spin text-blue-500" />}
-            </div>
+      <main className="pt-16">
+        <section className="bg-gray-100 py-12 transition-colors duration-300 dark:bg-gray-800 md:py-16">
+          <Container>
+            <motion.div {...theme.animations.fadeInUp} className="mb-10 text-center md:mb-12">
+              <h1 className="text-3xl font-bold md:text-4xl">Motor Control</h1>
+              <div className="mx-auto mt-4 h-1 w-20 rounded-full bg-blue-600 dark:bg-blue-500" />
+              <p className="mx-auto mt-6 max-w-2xl text-lg opacity-90">
+                Monitor the active job and manage the microcontroller while it draws.
+              </p>
+            </motion.div>
 
-            {error && (
-              <div className={getThemeClasses(
-                'p-3 rounded-md text-sm border',
-                { light: 'bg-red-50 border-red-200 text-red-700', dark: 'bg-red-900 border-red-700 text-red-200' },
-                darkMode
-              )}>
-                {error}
-              </div>
-            )}
+            <Card className="space-y-6 p-6 md:p-8">
+              <CardHeader
+                icon={Cpu}
+                title="Controller job status"
+                description="Live progress and batch information for the most recent job."
+                actions={
+                  <div className="flex items-center gap-3">
+                    {isLoading && <Loader2 className="h-4 w-4 animate-spin text-blue-600 dark:text-blue-400" />}
+                    <Pill tone={statusTone(status?.status)}>
+                      {status?.status || 'idle'}
+                      {status?.paused ? ' · paused' : ''}
+                    </Pill>
+                  </div>
+                }
+              />
 
-            <div className="relative">
-              {overlayMessage && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg bg-gray-900/20 dark:bg-black/30 text-gray-900 dark:text-gray-100">
-                  <Loader2 className="w-7 h-7 animate-spin text-blue-500" />
-                  <span className="mt-2 text-sm font-medium text-center px-4">{overlayMessage}</span>
+              {error && (
+                <div className="rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-500/40 dark:bg-red-500/10 dark:text-red-300">
+                  {error}
                 </div>
               )}
 
-              <div className={overlayMessage ? 'pointer-events-none opacity-60 transition-opacity duration-200' : ''}>
-                <div className="space-y-6">
-                  <div className="space-y-2">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                      <span className="font-medium">
-                        Status: {status?.status || 'idle'}{status?.paused ? ' (paused)' : ''}
-                      </span>
-                      {status?.jobId && (
-                        <span className="text-xs opacity-70">Job ID: {status.jobId}</span>
-                      )}
-                    </div>
+              <div className={cn('relative p-5', theme.surface.well)}>
+                {overlayMessage && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg bg-gray-100/70 dark:bg-gray-900/60">
+                    <Loader2 className="h-6 w-6 animate-spin text-blue-600 dark:text-blue-400" />
+                    <span className="mt-2 px-4 text-center text-sm font-medium">{overlayMessage}</span>
+                  </div>
+                )}
 
-                    {status?.totalPoints ? (
-                      <>
-                        <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                          <div
-                            className="bg-blue-500 h-2 rounded-full"
-                            style={{ width: `${progressPercent}%` }}
-                          />
-                        </div>
-                        <div className="flex justify-between text-xs opacity-70">
-                          <span>{status?.sentPoints || 0} / {status?.totalPoints || 0} points</span>
-                          <span>{status?.sentBatches || 0} / {status?.totalBatches || 0} batches</span>
-                        </div>
-                      </>
-                    ) : (
-                      <p className="text-xs opacity-70">Awaiting transmission data…</p>
-                    )}
+                <div
+                  className={cn(
+                    'space-y-4',
+                    overlayMessage && 'pointer-events-none opacity-50 transition-opacity duration-200'
+                  )}
+                >
+                  <div className="flex flex-wrap items-baseline justify-between gap-2">
+                    <span className="text-sm font-medium">Transmission</span>
+                    {status?.jobId && <span className="font-mono text-xs opacity-60">{status.jobId}</span>}
+                  </div>
 
-                    {status?.error && (
-                      <p className="text-xs text-red-500">Controller error: {status.error}</p>
-                    )}
-
-                    {controllerError && (
-                      <p className="text-xs text-red-500">Status poller error: {controllerError}</p>
-                    )}
-
-                    {controllerStale && (
-                      <p className="text-xs text-yellow-600 dark:text-yellow-300">Controller status is stale; awaiting refresh…</p>
-                    )}
-
-                    {status?.status === 'idle' && status?.lastState && (
-                      <p className="text-xs opacity-70">Last job: {status.lastState}</p>
-                    )}
-
-                    {(startedLabel || finishedLabel || lastUpdatedLabel) && (
-                      <div className="flex flex-col sm:flex-row sm:flex-wrap sm:gap-6 text-xs opacity-70">
-                        {startedLabel && <span>Started: {startedLabel}</span>}
-                        {finishedLabel && <span>Finished: {finishedLabel}</span>}
-                        {lastUpdatedLabel && <span>Last update: {lastUpdatedLabel}</span>}
+                  {status?.totalPoints ? (
+                    <div className="space-y-2">
+                      <ProgressBar value={progressPercent} />
+                      <div className="flex flex-wrap justify-between gap-2 text-xs opacity-70">
+                        <span>
+                          {(status?.sentPoints || 0).toLocaleString()} / {(status?.totalPoints || 0).toLocaleString()} points
+                        </span>
+                        <span>
+                          {status?.sentBatches || 0} / {status?.totalBatches || 0} batches
+                        </span>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs opacity-70">
+                      {status
+                        ? 'Awaiting transmission data…'
+                        : 'No active controller job yet. Start a drawing from the Designer to monitor it here.'}
+                    </p>
+                  )}
 
-                  <div className="flex flex-wrap items-center gap-3">
-                    {canPause && (
-                      <motion.button
-                        onClick={handlePause}
-                        disabled={isLoading}
-                        className={getThemeClasses(
-                          'px-4 py-2 text-sm font-medium rounded-lg border flex items-center gap-2 transition-colors disabled:opacity-70 disabled:cursor-not-allowed',
-                          { light: 'bg-yellow-50 border-yellow-200 text-yellow-700 hover:bg-yellow-100', dark: 'bg-yellow-900 border-yellow-700 text-yellow-200 hover:bg-yellow-800' },
-                          darkMode
-                        )}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        <Pause className="w-4 h-4" />
-                        Pause
-                      </motion.button>
-                    )}
+                  {status?.error && (
+                    <p className="text-xs text-red-600 dark:text-red-400">Controller error: {status.error}</p>
+                  )}
+                  {controllerError && (
+                    <p className="text-xs text-red-600 dark:text-red-400">Status poller error: {controllerError}</p>
+                  )}
+                  {controllerStale && (
+                    <p className="text-xs opacity-70">Controller status is stale; awaiting refresh…</p>
+                  )}
+                  {status?.status === 'idle' && status?.lastState && (
+                    <p className="text-xs opacity-70">Last job: {status.lastState}</p>
+                  )}
 
-                    {canResume && (
-                      <motion.button
-                        onClick={handleResume}
-                        disabled={isLoading}
-                        className={getThemeClasses(
-                          'px-4 py-2 text-sm font-medium rounded-lg border flex items-center gap-2 transition-colors disabled:opacity-70 disabled:cursor-not-allowed',
-                          { light: 'bg-green-50 border-green-200 text-green-700 hover:bg-green-100', dark: 'bg-green-900 border-green-700 text-green-200 hover:bg-green-800' },
-                          darkMode
-                        )}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        <Play className="w-4 h-4" />
-                        Resume
-                      </motion.button>
-                    )}
-
-                    {canCancel && (
-                      <motion.button
-                        onClick={handleCancel}
-                        disabled={isLoading}
-                        className={getThemeClasses(
-                          'px-4 py-2 text-sm font-medium rounded-lg border flex items-center gap-2 transition-colors disabled:opacity-70 disabled:cursor-not-allowed',
-                          { light: 'bg-red-50 border-red-200 text-red-700 hover:bg-red-100', dark: 'bg-red-900 border-red-700 text-red-200 hover:bg-red-800' },
-                          darkMode
-                        )}
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        <Square className="w-4 h-4" />
-                        Cancel
-                      </motion.button>
-                    )}
-                  </div>
-
-                  {!status && (
-                    <p className="text-sm opacity-75">No active controller job yet. Start a drawing from the Designer view to monitor it here.</p>
+                  {timeline.length > 0 && (
+                    <dl className="grid gap-3 border-t border-gray-200 pt-4 text-xs dark:border-gray-700 sm:grid-cols-3">
+                      {timeline.map((item) => (
+                        <div key={item.label}>
+                          <dt className="uppercase tracking-wide opacity-60">{item.label}</dt>
+                          <dd className="mt-0.5 font-medium">{item.value}</dd>
+                        </div>
+                      ))}
+                    </dl>
                   )}
                 </div>
               </div>
-            </div>
-          </motion.div>
-        </div>
+
+              {(canPause || canResume || canCancel) && (
+                <div className="flex flex-wrap gap-3">
+                  {canPause && (
+                    <Button variant="secondary" size="md" icon={Pause} onClick={handlePause} disabled={isLoading}>
+                      Pause
+                    </Button>
+                  )}
+                  {canResume && (
+                    <Button variant="secondary" size="md" icon={Play} onClick={handleResume} disabled={isLoading}>
+                      Resume
+                    </Button>
+                  )}
+                  {canCancel && (
+                    <Button variant="danger" size="md" icon={Square} onClick={handleCancel} disabled={isLoading}>
+                      Stop job
+                    </Button>
+                  )}
+                </div>
+              )}
+            </Card>
+          </Container>
+        </section>
       </main>
     </div>
   );

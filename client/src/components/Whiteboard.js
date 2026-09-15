@@ -391,8 +391,8 @@ const Whiteboard = ({ onOpenMotorControl }) => {
   const [uniformScaling, setUniformScaling] = useState(true);
 
   // Drawing method state
-  const [drawingMethod, setDrawingMethod] = useState('contour');
-  const [hatchSpacing, setHatchSpacing] = useState(6);
+  const [drawingMethod, setDrawingMethod] = useState('hatch');
+  const [hatchSpacing, setHatchSpacing] = useState(15);
 
   // Visualization state
   const [isVisualizing, setIsVisualizing] = useState(false);
